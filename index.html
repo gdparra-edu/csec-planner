@@ -1,0 +1,2069 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UIW CSEC — Interactive Course Planner</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#0f172a;color:#e2e8f0;overflow:hidden;user-select:none;
+  display:flex;flex-direction:column;height:100vh;height:100dvh}
+
+/* Header stays in normal flow so #main always starts below it, even when controls wrap */
+#header{
+  position:relative;z-index:20;flex-shrink:0;
+  background:linear-gradient(135deg,#1e293b,#0f172a);
+  border-bottom:1px solid #334155;padding:8px 16px;
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;
+}
+#header h1{font-size:16px;font-weight:600;color:#f1f5f9}
+.hdr-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.hdr-controls select,.hdr-controls button{
+  background:#1e293b;color:#e2e8f0;border:1px solid #475569;
+  border-radius:5px;padding:4px 10px;font-size:12px;cursor:pointer;
+}
+.hdr-controls button:hover{background:#334155}
+.hdr-controls label{font-size:11px;color:#94a3b8;margin-right:2px}
+
+/* Mode toggle — high specificity to override .hdr-controls button */
+#modeToggle{
+  display:flex;border:1px solid #475569;border-radius:6px;overflow:hidden;
+}
+#modeToggle button{
+  border:none!important;border-radius:0!important;padding:5px 14px!important;font-size:12px!important;font-weight:600!important;
+  cursor:pointer;transition:background .15s,color .15s;
+}
+#modeToggle button.active-completed{background:#D4AF37!important;color:#1e293b!important}
+#modeToggle button.active-current{background:#C0C0C0!important;color:#1e293b!important}
+#modeToggle button.active-planned{background:#CD7F32!important;color:#1e293b!important}
+#modeToggle button:not(.active-completed):not(.active-current):not(.active-planned){background:#1e293b!important;color:#94a3b8!important}
+
+#focusToggle{
+  border:1px solid #475569;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;
+  cursor:pointer;transition:background .15s,color .15s;margin-left:4px;
+}
+#focusToggle.active{background:#7c3aed;color:#fff;border-color:#7c3aed}
+#focusToggle:not(.active){background:#1e293b;color:#94a3b8}
+
+#main{display:flex;position:relative;flex:1;min-height:0}
+#graphPanel{flex:1;position:relative;overflow:hidden}
+#planPanel{
+  width:340px;min-width:340px;border-left:1px solid #334155;
+  background:#111827;overflow-y:auto;display:flex;flex-direction:column;
+}
+
+.copy-bar{background:#1e293b;border-bottom:1px solid #334155;padding:10px 14px;flex-shrink:0}
+.copy-bar-title{font-size:11px;text-transform:uppercase;color:#94a3b8;letter-spacing:.8px;font-weight:600;margin-bottom:6px}
+.copy-row{display:flex;gap:6px;margin-bottom:6px;align-items:stretch}
+.copy-box{
+  flex:1;background:#0f172a;border:1px solid #334155;border-radius:5px;
+  padding:5px 8px;font-size:11px;color:#cbd5e1;font-family:'Courier New',monospace;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-height:28px;display:flex;align-items:center;
+}
+.copy-box.empty{color:#94a3b8;font-family:'Segoe UI',sans-serif;font-style:italic}
+.copy-btn{
+  background:#2563eb;color:#fff;border:none;border-radius:5px;padding:4px 10px;
+  font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;
+}
+.copy-btn:hover{background:#1d4ed8}
+.copy-btn.copied{background:#15803d}
+.copy-label{font-size:11px;color:#94a3b8;margin-bottom:2px}
+.paste-toggle{background:none;border:1px solid #475569;border-radius:4px;color:#94a3b8;font-size:11px;padding:2px 8px;cursor:pointer;font-weight:600;letter-spacing:.3px}
+.paste-toggle:hover{border-color:#64748b;color:#cbd5e1}
+.paste-toggle.active{background:#7c3aed;border-color:#7c3aed;color:#fff}
+.paste-area{flex:1;background:#0f172a;border:1px solid #7c3aed;border-radius:5px;padding:5px 8px;font-size:11px;color:#cbd5e1;font-family:'Courier New',monospace;min-height:28px;resize:none;outline:none;line-height:1.4}
+.paste-area::placeholder{color:#94a3b8;font-style:italic;font-family:'Segoe UI',sans-serif}
+.paste-apply{background:#15803d;color:#fff;border:none;border-radius:5px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.3px;margin-top:4px;width:100%}
+.paste-apply:hover{background:#166534}
+.paste-clear{background:#dc2626;color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;margin-top:4px}
+.paste-clear:hover{background:#b91c1c}
+.prompt-box{
+  background:#0f172a;border:1px solid #334155;border-radius:5px;
+  padding:6px 8px;font-size:11px;color:#94a3b8;line-height:1.4;margin-top:4px;
+}
+.prompt-box b{color:#e2e8f0}
+
+.plan-area{flex:1;overflow-y:auto;padding:0 0 16px}
+.sem-col{border-bottom:1px solid #1e293b;padding:10px 14px}
+.sem-col:last-child{border-bottom:none}
+.sem-header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;margin-bottom:6px}
+.sem-label{font-size:13px;font-weight:600;white-space:nowrap}
+.sem-count{white-space:nowrap;font-size:11px;color:#94a3b8;background:#1e293b;border-radius:10px;padding:1px 8px}
+.sem-course{display:flex;align-items:center;gap:6px;padding:4px 8px;margin:2px 0;border-radius:5px;font-size:12px;transition:background .15s;cursor:default}
+.sem-course:hover{background:#1e293b}
+.sem-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.sem-code{font-weight:600;min-width:72px}
+.sem-title{color:#94a3b8;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sem-avail{font-size:11px;color:#94a3b8;flex-shrink:0}
+
+.legend-bar{
+  background:#1e293b;border-top:1px solid #334155;padding:8px 14px;flex-shrink:0;
+  display:flex;gap:12px;flex-wrap:wrap;align-items:center;
+}
+.leg-item{display:flex;align-items:center;gap:4px;font-size:11px;color:#94a3b8}
+.leg-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+
+.info-bar{
+  background:#0f172a;border-top:1px solid #334155;padding:8px 14px;flex-shrink:0;
+  display:flex;justify-content:space-around;text-align:center;
+}
+.info-item .val{font-size:18px;font-weight:700}
+.info-item .lbl{font-size:11px;color:#94a3b8}
+
+#tooltip{
+  position:absolute;pointer-events:none;z-index:30;
+  background:#1e293bf5;border:1px solid #475569;border-radius:8px;
+  padding:12px 16px;font-size:13px;max-width:340px;
+  box-shadow:0 8px 32px rgba(0,0,0,.5);display:none;
+  transition:left .15s ease-out,top .15s ease-out;
+}
+.tt-code{font-size:15px;font-weight:700;margin-bottom:1px}
+.tt-title{color:#94a3b8;margin-bottom:6px;font-size:12px}
+.tt-row{display:flex;justify-content:space-between;margin:2px 0;gap:12px}
+.tt-label{color:#94a3b8;white-space:nowrap}
+.tt-val{color:#f1f5f9;font-weight:500;text-align:right}
+.tt-divider{border-top:1px solid #334155;margin:6px 0}
+.tt-tag{display:inline-block;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:600}
+
+#notification{
+  position:fixed;bottom:20px;left:calc(50% - 170px);z-index:30;
+  background:#1d4ed8ee;color:#fff;border-radius:8px;padding:8px 20px;
+  font-size:13px;font-weight:500;opacity:0;transition:opacity .4s;pointer-events:none;
+}
+#notification.show{opacity:1}
+
+/* Level row labels */
+.level-label{
+  font-size:11px;fill:#94a3b8;font-weight:700;letter-spacing:1px;text-anchor:start;
+}
+
+.alt-toggle{
+  cursor:pointer;fill:#8b5cf6;opacity:0.7;transition:opacity .15s;
+}
+.alt-toggle:hover{opacity:1}
+.alt-toggle-bg{fill:#1e293b;stroke:#8b5cf6;stroke-width:1.5}
+.alt-toggle-text{fill:#c4b5fd;font-size:7px;font-weight:700;text-anchor:middle;pointer-events:none}
+.node-rect{
+  rx:6;ry:6;
+}
+svg{cursor:grab}svg:active{cursor:grabbing}
+
+/* ── Header groups ── */
+.hdr-options{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#viewToggle.active,#optionsBtn[aria-expanded="true"]{background:#334155;border-color:#94a3b8}
+.phone-only{display:none!important}
+
+/* ── List view (tap-friendly alternative to the graph) ── */
+#listPanel{display:none;flex:1;overflow-y:auto;padding:8px 12px 16px;background:#0f172a;-webkit-overflow-scrolling:touch}
+body.view-list #graphPanel{display:none}
+body.view-list #listPanel{display:block}
+.list-hint{font-size:13px;color:#cbd5e1;padding:6px 2px 10px}
+.list-hint b{font-weight:700}
+.list-group{margin-bottom:14px}
+.list-group h3{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:#94a3b8;margin:4px 2px 6px;font-weight:700}
+.list-row{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;padding:8px 10px;margin:4px 0;
+  background:#111827;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;text-align:left;cursor:pointer;font:inherit}
+.list-row:hover{background:#1e293b}
+.list-row:focus-visible{outline:2px solid #3b82f6;outline-offset:1px}
+.list-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0;border:2px solid transparent}
+.list-dot.cp{border:2px dotted #ef4444}
+.list-main{flex:1;min-width:0}
+.list-code{display:block;font-weight:700;font-size:14px}
+.list-title{display:block;font-size:12px;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.list-status{font-size:11px;font-weight:700;border-radius:10px;padding:2px 8px;flex-shrink:0;color:#0f172a}
+.list-avail{font-size:11px;color:#94a3b8;flex-shrink:0}
+.list-alt{background:none;border:1px solid #7c3aed;color:#c4b5fd;border-radius:6px;font-size:11px;padding:4px 8px;cursor:pointer;flex-shrink:0;font:inherit;font-size:11px}
+
+/* ── Submit plan ── */
+.submit-bar{margin:6px 12px 0;padding:8px 10px;border:1px solid #334155;border-radius:8px;background:#0f172a}
+.submit-title{font-size:12px;font-weight:700;color:#e2e8f0;margin-bottom:6px}
+.submit-row{display:flex;gap:6px}
+.submit-row input{flex:1;min-width:0;background:#111827;border:1px solid #475569;border-radius:5px;color:#e2e8f0;padding:6px 8px;font-size:12px}
+.submit-btn{background:#15803d!important;font-size:12px!important;padding:6px 12px!important}
+.submit-note{font-size:11px;color:#94a3b8;margin-top:5px;line-height:1.35}
+
+/* ── Help overlay ── */
+#helpOverlay{position:fixed;inset:0;z-index:50;background:#020617cc;display:flex;align-items:center;justify-content:center;padding:16px}
+#helpOverlay[hidden]{display:none}
+.help-card{position:relative;max-width:560px;width:100%;max-height:100%;overflow-y:auto;background:#111827;border:1px solid #334155;border-radius:12px;padding:20px 20px 16px;color:#e2e8f0;user-select:text}
+.help-card h2{font-size:17px;margin-bottom:12px;padding-right:28px}
+.help-steps{padding-left:20px;font-size:13.5px;line-height:1.55}
+.help-steps li{margin-bottom:8px}
+.help-note{font-size:12.5px;color:#cbd5e1;background:#1e293b;border-radius:8px;padding:8px 10px;margin:8px 0 12px;line-height:1.45}
+.help-close{position:absolute;top:10px;right:10px;background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;width:36px;height:36px}
+.chip{display:inline-block;border-radius:4px;padding:0 6px;font-size:12px;font-weight:700;color:#1e293b}
+.chip-completed{background:#D4AF37}.chip-current{background:#C0C0C0}.chip-planned{background:#CD7F32}
+
+/* ── Phone tab bar ── */
+#tabBar{flex-shrink:0;border-top:1px solid #334155;background:#111827;padding-bottom:env(safe-area-inset-bottom)}
+#tabBar button{flex:1;background:none;border:none;color:#94a3b8;font:inherit;font-size:14px;font-weight:600;padding:12px 4px;cursor:pointer}
+#tabBar button.active{color:#f1f5f9;box-shadow:inset 0 3px 0 #3b82f6}
+
+/* Narrow desktop / tablet: let the sidebar shrink instead of crushing the graph */
+@media (max-width:1000px){
+  #planPanel{width:300px;min-width:0}
+}
+
+/* Touch devices: 16px form controls stop iOS Safari from auto-zooming the page on focus */
+@media (pointer:coarse){
+  select,input,textarea{font-size:16px!important}
+}
+
+/* Phone layout: one panel at a time, chosen from the bottom tab bar */
+@media (max-width:768px){
+  .phone-only{display:flex!important}
+  .desk-only{display:none!important}
+  .hdr-long{display:none}
+  #header{padding:6px 10px}
+  #header h1{font-size:14px}
+  .hdr-controls{gap:6px;width:100%}
+  .hdr-controls button,#modeToggle button{min-height:36px}
+  #modeToggle{flex:1 1 100%;order:-1}
+  #modeToggle button{flex:1;padding:5px 6px!important}
+  #focusToggle{margin-left:0}
+  .hdr-controls > button{flex:1}
+  .hdr-options{display:none;width:100%;order:10;padding-top:4px}
+  #header.options-open .hdr-options{display:grid;grid-template-columns:auto 1fr;gap:6px 8px;align-items:center}
+  .hdr-options select{flex:1;min-width:0}
+  #graphPanel,#listPanel,#planPanel{display:none}
+  body.view-graph #graphPanel{display:block}
+  body.view-list #listPanel{display:block}
+  body.view-plan #planPanel{display:flex;width:100%;min-width:0;border-left:none}
+  body.view-plan .plan-area{flex:none;overflow:visible}
+  #notification{left:16px;right:16px;bottom:72px;text-align:center}
+  #tooltip{display:none!important}
+}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>UIW CSEC / CIS <span class="hdr-long">— Interactive Course Planner</span></h1>
+  <div class="hdr-controls">
+    <div id="hdrOptions" class="hdr-options">
+    <label>View:</label>
+    <select id="programSelect">
+      <option value="CSEC">Cybersecurity Program</option>
+      <option value="electives">Elective Courses</option>
+      <option value="all">All Courses</option>
+    </select>
+    <label>Next Semester:</label>
+    <select id="nextSemSelect"></select>
+    <label>Load:</label>
+    <select id="loadSelect">
+      <option value="4-5">4-5 courses (Balanced)</option>
+      <option value="5-6" selected>5-6 courses (Accelerated)</option>
+      <option value="6-7">6-7 courses (Intensive)</option>
+    </select>
+    </div>
+    <div id="modeToggle">
+      <button id="modeCompleted" class="active-completed">Completed</button>
+      <button id="modeCurrent">Enrolled</button>
+      <button id="modePlanned">Planned</button>
+    </div>
+    <button id="focusToggle" class="active" title="When ON, hovering a node dims unrelated courses. When OFF, all nodes stay bright.">Focus</button>
+    <button id="resetBtn">Clear All</button>
+    <button id="viewToggle" class="desk-only" title="Switch between the course graph and a simple course list">☰ List</button>
+    <button id="optionsBtn" class="phone-only" aria-expanded="false" aria-controls="hdrOptions">⚙ Options</button>
+    <button id="helpBtn" title="How to use this planner">? Help</button>
+  </div>
+</div>
+
+<div id="main">
+  <div id="graphPanel"><svg id="graph"></svg><div id="tooltip"></div></div>
+  <div id="listPanel">
+    <div class="list-hint" id="listHint"></div>
+    <div id="listBody"></div>
+  </div>
+  <div id="planPanel">
+    <div class="copy-bar">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div class="copy-bar-title" style="margin-bottom:0">Copy Course Selections</div>
+        <button class="paste-toggle" id="btnPasteMode" title="Toggle Paste Mode — paste comma-separated course lists from a student email">📋 Paste</button>
+      </div>
+      <!-- READ-ONLY MODE (default) -->
+      <div id="copyModeRead">
+        <div class="copy-label" style="color:#D4AF37">Completed courses:</div>
+        <div class="copy-row">
+          <div class="copy-box empty" id="copyCompleted">Use "Completed" mode and click courses...</div>
+          <button class="copy-btn" id="btnCopyCompleted">Copy</button>
+        </div>
+        <div class="copy-label" style="color:#C0C0C0">Currently enrolled:</div>
+        <div class="copy-row">
+          <div class="copy-box empty" id="copyCurrent">Use "Enrolled" mode and click courses...</div>
+          <button class="copy-btn" id="btnCopyCurrent">Copy</button>
+        </div>
+        <div class="copy-label" style="color:#CD7F32">Planned (next semester):</div>
+        <div class="copy-row">
+          <div class="copy-box empty" id="copyPlanned">Use "Planned" mode and click courses...</div>
+          <button class="copy-btn" id="btnCopyPlanned">Copy</button>
+        </div>
+      </div>
+      <!-- PASTE MODE (hidden by default) -->
+      <div id="copyModePaste" style="display:none">
+        <div class="copy-label" style="color:#D4AF37">Completed courses (paste comma-separated):</div>
+        <div class="copy-row">
+          <textarea class="paste-area" id="pasteCompleted" rows="2" placeholder="CIS 1100, CIS 2328, ENGL 1311, Fine Arts..."></textarea>
+        </div>
+        <div class="copy-label" style="color:#C0C0C0">Currently enrolled (paste comma-separated):</div>
+        <div class="copy-row">
+          <textarea class="paste-area" id="pasteCurrent" rows="2" placeholder="CIS 3325, CIS 3353, ECON 2301..."></textarea>
+        </div>
+        <div class="copy-label" style="color:#CD7F32">Planned next semester (paste comma-separated):</div>
+        <div class="copy-row">
+          <textarea class="paste-area" id="pastePlanned" rows="2" placeholder="CIS 3367, Wellness, PE Activity..."></textarea>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="paste-apply" id="btnPasteApply">✓ Apply Selections to Graph</button>
+          <button class="paste-clear" id="btnPasteClear" title="Clear all selections">✕</button>
+        </div>
+        <div id="pasteErrors" style="display:none;padding:4px 0 0 0;font-size:11px;color:#f59e0b;line-height:1.4"></div>
+      </div>
+      <details style="margin-top:6px">
+        <summary style="font-size:11px;color:#94a3b8;cursor:pointer;user-select:none"><span style="color:#94a3b8">AI Prompt</span> — paste into Gemini, Copilot, or Claude MCP</summary>
+        <div class="copy-row" style="margin-top:4px">
+          <div class="copy-box" id="copyPrompt" style="white-space:normal;line-height:1.3;font-size:11px;font-family:'Segoe UI',sans-serif;color:#94a3b8;max-height:60px;overflow-y:auto">Select courses above to generate prompt...</div>
+          <button class="copy-btn" id="btnCopyPrompt" style="font-size:11px;padding:3px 8px">Copy</button>
+        </div>
+      </details>
+    </div>
+    <div class="info-bar">
+      <div class="info-item"><div class="val" id="statDone" style="color:#D4AF37">0</div><div class="lbl">Done</div></div>
+      <div class="info-item"><div class="val" id="statNow" style="color:#C0C0C0">0</div><div class="lbl">Now</div></div>
+      <div class="info-item"><div class="val" id="statPlanned" style="color:#CD7F32">0</div><div class="lbl">Planned</div></div>
+      <div class="info-item"><div class="val" id="statLeft" style="color:#f59e0b">0</div><div class="lbl">Left</div></div>
+      <div class="info-item"><div class="val" id="statSems" style="color:#e2e8f0">0</div><div class="lbl">Semesters</div></div>
+      <div class="info-item"><div class="val" id="statPct" style="color:#22c55e">0%</div><div class="lbl">Progress</div></div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 12px 0 12px;gap:4px">
+      <div style="font-size:12px;font-weight:600;color:#94a3b8">Semester Plan</div>
+      <div style="display:flex;gap:4px">
+        <button class="copy-btn" id="btnRecompute" style="font-size:12px;padding:6px 14px;display:none;background:#CD7F32;color:#1e293b;font-weight:700;letter-spacing:0.3px" title="Confirm your planned courses and recompute future semesters">Confirm &amp; Recompute</button>
+        <button class="copy-btn" id="btnCopyPlan" style="font-size:12px;padding:6px 14px;display:none;background:#15803d;font-weight:700;letter-spacing:0.3px" title="Copy the full semester plan to paste in your email to Dr. Parra">📋 Copy Plan</button>
+      </div>
+    </div>
+    <div class="submit-bar" id="submitBar" style="display:none">
+      <div class="submit-title">Send your plan to Dr. Parra</div>
+      <div class="submit-row">
+        <input type="text" id="studentName" placeholder="Last, First – W01234567" autocomplete="name">
+        <button class="copy-btn submit-btn" id="btnSubmitPlan" title="Copies your plan and opens an email to your advisor">✉ Email Plan</button>
+      </div>
+      <div class="submit-note">Opens your email app with the subject filled in. If the body is empty, paste (Ctrl/Cmd+V) — your plan is already copied.</div>
+    </div>
+    <div class="plan-area" id="planArea"></div>
+    <div class="legend-bar">
+      <div class="leg-item"><div class="leg-dot" style="background:#D4AF37"></div>Completed</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#C0C0C0"></div>Enrolled</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#CD7F32"></div>Planned</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#f59e0b"></div>Eligible Next</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#475569"></div>Locked</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#475569;border:2px dotted #ef4444;width:8px;height:8px;box-shadow:0 0 4px #ef444466"></div>Critical Path</div>
+      <div style="flex:1"></div>
+      <div style="font-size:11px;color:#94a3b8">Click node to toggle | Switch mode in header</div>
+    </div>
+  </div>
+</div>
+
+<nav id="tabBar" class="phone-only" aria-label="Planner views">
+  <button data-view="list" class="active">Courses</button>
+  <button data-view="graph">Graph</button>
+  <button data-view="plan">My Plan</button>
+</nav>
+
+<div id="helpOverlay" role="dialog" aria-modal="true" aria-labelledby="helpTitle" hidden>
+  <div class="help-card">
+    <button class="help-close" id="helpClose" aria-label="Close help">✕</button>
+    <h2 id="helpTitle">Start here: plan your <span class="term-label">next semester</span></h2>
+    <ol class="help-steps">
+      <li><b>Completed</b> — choose <span class="chip chip-completed">Completed</span>, then tap every course you passed (check DegreeWorks). Transfer credit counts.</li>
+      <li><b>Enrolled</b> — choose <span class="chip chip-current">Enrolled</span>, then tap the courses you are taking this semester.</li>
+      <li><b>Planned</b> — choose <span class="chip chip-planned">Planned</span>, then tap the courses you want for <span class="term-label">next semester</span>. Amber courses are eligible now. Press <b>Confirm &amp; Recompute</b>.</li>
+      <li><b>Send</b> — open <b>My Plan</b>, type your name and W number, and press <b>✉ Email Plan</b>. Do not change the email subject.</li>
+      <li><b>Meet</b> — book your advising appointment from the EAB Navigate email. Your plan must arrive before the meeting. Your Alt PIN is released after the meeting.</li>
+    </ol>
+    <div class="help-note"><b>Substitutions:</b> ENGR 4321 counts for CSEC 3355, MIS 3363 for CIS 3310, MIS 3362 for CIS 3362. Use the ⇄ button on a course (graph) or the ⇄ link (list) to pick the substitute.</div>
+    <button class="paste-apply" id="helpDone">Got it</button>
+  </div>
+</div>
+
+<div id="notification"></div>
+
+<script>
+// ═════════════════════════════════════════════════════════════════════════
+// COURSE DATA
+// ═════════════════════════════════════════════════════════════════════════
+const ALL = {
+  // ── Core Curriculum (43 credits) ──
+  "ENGL 1311":{t:"English Composition I",p:[],pt:null,g:4,l:0,prog:"Core",avail:{spring:true,fall:true},inst:[],unlocks:["ENGL 1312","World Literature"],credits:3,sw:8,cp:false,sp:1},
+  "ENGL 1312":{t:"English Composition II",p:["ENGL 1311"],pt:"single",g:0,l:0,prog:"Core",avail:{spring:true,fall:true},inst:[],unlocks:[],credits:3,sw:9,cp:false,sp:2},
+  "World Literature":{t:"World Literature",p:["ENGL 1311"],pt:"single",g:0,l:0,prog:"Core",avail:{spring:true,fall:true},inst:[],unlocks:[],credits:3,isGeneric:true,sw:7,cp:false,sp:2},
+  "Fine Arts":{t:"Fine Arts",p:[],pt:null,g:0,l:0,prog:"Core",avail:{spring:true,fall:true},inst:[],unlocks:[],credits:3,isGeneric:true,sw:7,cp:false,sp:1},
+  "Philosophy":{t:"Philosophy",p:[],pt:null,g:0,l:0,prog:"Core",avail:{spring:true,fall:true},inst:[],unlocks:[],credits:3,isGeneric:true,sw:8,cp:false,sp:1},
+  "Religious Studies":{t:"Religious Studies",p:[],pt:null,g:0,l:0,prog:"Core",avail:{spring:true,fall:true},inst:[],unlocks:[],credits:3,isGeneric:true,sw:8,cp:false,sp:1},
+  "Adv. Phil/Religion":{t:"Adv. Phil/Religion",p:[],pt:null,g:0,l:0,prog:"Core",avail:{spring:true,fall:true},inst:[],unlocks:[],credits:3,isGeneric:true,sw:6,cp:false,sp:2},
+  "History":{t:"History",p:[],pt:null,g:0,l:0,prog:"Core",avail:{spring:true,fall:true},inst:[],unlocks:[],credits:3,isGeneric:true,sw:9,cp:false,sp:1},
+  "ECON 2301":{t:"Principles of Macroeconomics",p:[],pt:null,g:0,l:0,prog:"Core",avail:{spring:true,fall:true},inst:[],unlocks:[],credits:3,sw:7,cp:false,sp:1},
+  "Natural Sciences":{t:"Natural Sciences",p:[],pt:null,g:0,l:0,prog:"Core",avail:{spring:true,fall:true},inst:[],unlocks:[],credits:4,isGeneric:true,sw:8,cp:false,sp:1},
+  "Language I":{t:"Language I",p:[],pt:null,g:1,l:0,prog:"Core",avail:{spring:true,fall:true},inst:[],unlocks:["Language II"],credits:3,isGeneric:true,sw:8,cp:false,sp:1},
+  "Language II":{t:"Language II",p:["Language I"],pt:"single",g:0,l:0,prog:"Core",avail:{spring:true,fall:true},inst:[],unlocks:[],credits:3,isGeneric:true,sw:6,cp:false,sp:2},
+  "Wellness":{t:"Wellness",p:[],pt:null,g:0,l:0,prog:"Core",avail:{spring:true,fall:true},inst:[],unlocks:[],credits:2,isGeneric:true,sw:8,cp:false,sp:1},
+  "PE Activity":{t:"PE Activity",p:[],pt:null,g:0,l:0,prog:"Core",avail:{spring:true,fall:true},inst:[],unlocks:[],credits:1,isGeneric:true,sw:6,cp:false,sp:1},
+  // ── Substitute / Alternative courses (not shown as separate nodes) ──
+  "MIS 3363":{t:"Database Management (MIS)",p:["CIS 2330"],pt:"single",g:0,l:3,prog:"Substitute",avail:{spring:true,fall:false},inst:["STAFF (S)"],unlocks:[],alt:"CIS 3310",sw:0,cp:false,sp:2},
+  "MIS 3362":{t:"Systems Analysis and Design (MIS)",p:["12 Credits in CIS"],pt:"credit_hours",g:0,l:3,prog:"Substitute",avail:{spring:true,fall:false},inst:["STAFF (S)"],unlocks:[],alt:"CIS 3362",sw:0,cp:false,sp:3},
+  "MATH 0320":{t:"Core Math Preparations",p:[],pt:null,g:3,l:1,prog:"Substitute",avail:{spring:true,fall:true},inst:[],unlocks:["MATH 2303"],alt:"MATH 1304",credits:3,sw:9,cp:false,sp:1},
+  "ENGR 4321":{t:"Microcontrollers/Embedded Systems",p:[],pt:null,g:0,l:4,prog:"Substitute",avail:{spring:true,fall:false},inst:["Dr. Caglayan (S)"],unlocks:[],alt:"CSEC 3355",sw:0,cp:false,sp:3},
+  // ── Major Courses ──
+  "CIS 1100":{t:"Orientation to CIS",p:[],pt:null,g:0,l:1,prog:"CSEC",avail:{spring:false,fall:true},inst:["Dr. Parra (F)","Dr. Labay (F)"],unlocks:[],sw:10,cp:false,sp:1},
+  "CIS 1301":{t:"Computer Information Systems",p:[],pt:null,g:0,l:1,prog:"CIS-only",avail:{spring:false,fall:true},inst:["Dr. Del Rio (F)"],unlocks:[],sw:0,cp:false,sp:1},
+  "CIS 1333":{t:"Scripting Languages",p:[],pt:null,g:0,l:1,prog:"CSEC",avail:{spring:true,fall:true},inst:["Prof. Ammari (S/F)"],unlocks:[],sw:7,cp:false,sp:1},
+  "CIS 2190":{t:"Seminar in CIS",p:["12 Credits in CIS"],pt:"credit_hours",g:0,l:2,prog:"CIS-only",avail:{spring:true,fall:false},inst:["Dr. Labay (S)"],unlocks:[],sw:0,cp:false,sp:3},
+  "CIS 2328":{t:"Hardware and System Software",p:[],pt:null,g:28,l:2,prog:"CSEC",avail:{spring:false,fall:true},inst:["Prof. Ongkiko (F)","Prof. Ammari (F)"],unlocks:["CIS 2335","CIS 3360"],sw:10,cp:true,sp:1},
+  "CIS 2330":{t:"Programming Languages I",p:[],pt:null,g:24,l:2,prog:"CSEC",avail:{spring:true,fall:true},inst:["Dr. Del Rio (S/F)"],unlocks:["CIS 2368","CIS 3310","CIS 3330","CIS 4320"],sw:10,cp:false,sp:1},
+  "CIS 2335":{t:"Computer Networks",p:["CIS 2328"],pt:"single",g:48,l:2,prog:"CSEC",avail:{spring:true,fall:true},inst:["Prof. Ammari (S/F)"],unlocks:["CIS 3325","CIS 3340","CIS 3353","CIS 3367"],sw:10,cp:true,sp:2},
+  "CIS 2340":{t:"Intro to OS",p:[],pt:null,g:24,l:2,prog:"CSEC",avail:{spring:true,fall:true},inst:["Dr. Del Rio (S/F)"],unlocks:["CIS 2350","CIS 3340"],sw:10,cp:true,sp:1},
+  "CIS 2350":{t:"UNIX/Linux OS",p:["CIS 2340"],pt:"single",g:16,l:2,prog:"CSEC",avail:{spring:false,fall:true},inst:["Dr. Del Rio (F)"],unlocks:["CIS 3325","CIS 3353"],sw:8,cp:true,sp:2},
+  "CIS 2368":{t:"Website Development I",p:["CIS 2330"],pt:"single",g:2,l:2,prog:"CSEC",avail:{spring:false,fall:true},inst:["Prof. Idar (F)"],unlocks:["CIS 3365"],sw:7,cp:false,sp:3},
+  "CIS 3310":{t:"Database Management Systems",p:["CIS 2330"],pt:"single",g:0,l:3,prog:"CSEC",avail:{spring:true,fall:true},inst:["Prof. Ongkiko (S/F)"],unlocks:[],alt:"MIS 3363",sw:4,cp:false,sp:3},
+  "CIS 3319":{t:"Internship (CIS)",p:["12 Credits in CIS/CSEC"],pt:"credit_hours",g:4,l:3,prog:"CSEC",avail:{spring:true,fall:true},inst:["Prof. Ammari (S/F)"],unlocks:["CIS 4390","CSEC 4390"],alt:"CSEC 3319",sw:2,cp:false,sp:3},
+  "CIS 3325":{t:"Linux Networking",p:["CIS 2350","CIS 2335"],pt:"AND",g:0,l:3,prog:"CSEC",avail:{spring:true,fall:false},inst:["Dr. Parra (S)"],unlocks:[],sw:6,cp:false,sp:3},
+  "CIS 3330":{t:"Programming Languages II",p:["CIS 2330"],pt:"single",g:0,l:3,prog:"CIS-only",avail:{spring:true,fall:true},inst:["Dr. Del Rio (S/F)"],unlocks:[],sw:0,cp:false,sp:2},
+  "CIS 3335":{t:"Cryptography",p:["MATH 2303","CIS 3353"],pt:"AND",g:1,l:3,prog:"CSEC",avail:{spring:true,fall:false},inst:["Prof. Ongkiko (S)"],unlocks:["CSEC 4300"],sw:4,cp:true,sp:3},
+  "CIS 3340":{t:"Windows Client-Server Networking",p:["CIS 2335","CIS 2340"],pt:"AND",g:4,l:3,prog:"CSEC",avail:{spring:true,fall:false},inst:["Prof. Cowart (S)"],unlocks:["CIS 3370","CIS 4355"],sw:6,cp:false,sp:3},
+  "CIS 3345":{t:"Digital Forensics",p:["CIS 3353"],pt:"single",g:1,l:3,prog:"CSEC",avail:{spring:false,fall:true},inst:["Prof. Cowart (F)"],unlocks:["CSEC 4300"],sw:2,cp:true,sp:3},
+  "CIS 3353":{t:"Computer Systems Security",p:["CIS 2335","CIS 2350"],pt:"AND",g:30,l:3,prog:"CSEC",avail:{spring:true,fall:true},inst:["Dr. Parra (S/F)"],unlocks:["CIS 3335","CIS 3345","CIS 4370","CSEC 3320","CSEC 4320"],sw:7,cp:true,sp:3},
+  "CIS 3360":{t:"Computer Science",p:["CIS 2328"],pt:"single",g:0,l:3,prog:"CIS-only",avail:{spring:true,fall:false},inst:["Dr. Del Rio (S)"],unlocks:[],sw:0,cp:false,sp:2},
+  "CIS 3362":{t:"Systems Analysis and Design",p:["12 Credits in CIS"],pt:"credit_hours",g:0,l:3,prog:"CSEC",avail:{spring:true,fall:false},inst:["Prof. Ongkiko (S)"],unlocks:[],alt:"MIS 3362",sw:6,cp:false,sp:3},
+  "CIS 3365":{t:"Web Development II",p:["CIS 2368"],pt:"single",g:1,l:3,prog:"CIS-only",avail:{spring:true,fall:false},inst:["Prof. Idar (S)"],unlocks:["CIS 4375"],sw:0,cp:false,sp:3},
+  "CIS 3367":{t:"Networks & Telecoms.",p:["CIS 2335"],pt:"single",g:0,l:3,prog:"CSEC",avail:{spring:false,fall:true},inst:["Prof. Ammari (F)"],unlocks:[],sw:7,cp:false,sp:3},
+  "CIS 3370":{t:"Intrusion Detection and Response",p:["CIS 3340"],pt:"single",g:0,l:3,prog:"CSEC",avail:{spring:false,fall:true},inst:["Dr. Parra (F)"],unlocks:[],sw:3,cp:false,sp:3},
+  "CIS 3380":{t:"Emerging Technologies",p:["12 Credits in CIS"],pt:"credit_hours",g:0,l:3,prog:"CIS-only",avail:{spring:true,fall:false},inst:["Prof. Idar (S)"],unlocks:[],sw:0,cp:false,sp:3},
+  "CIS 4320":{t:"Data Structures & Algorithms",p:["CIS 2330"],pt:"single",g:0,l:4,prog:"CIS-only",avail:{spring:false,fall:true},inst:["Prof. Ongkiko (F)"],unlocks:[],sw:0,cp:false,sp:2},
+  "CIS 4355":{t:"Cloud Computing",p:["CIS 3340"],pt:"single",g:0,l:4,prog:"CSEC",avail:{spring:true,fall:false},inst:["Dr. Parra (S)"],unlocks:[],sw:4,cp:false,sp:4},
+  "CIS 4370":{t:"Network Pen-Testing",p:["CIS 3353"],pt:"single",g:0,l:4,prog:"CSEC",avail:{spring:true,fall:false},inst:["Prof. Cowart (S)"],unlocks:[],sw:3,cp:false,sp:4},
+  "CIS 4375":{t:"Creating Dynamic Websites",p:["CIS 3365"],pt:"single",g:0,l:4,prog:"CIS-only",avail:{spring:false,fall:true},inst:["Prof. Idar (F)"],unlocks:[],sw:0,cp:false,sp:4},
+  "CIS 4390":{t:"Capstone",p:["CSEC 3319"],pt:"single",g:0,l:4,prog:"CSEC",avail:{spring:true,fall:true},inst:["Dr. Del Rio (S)","Dr. Parra (F)"],unlocks:[],alt:"CSEC 4390",sw:2,cp:false,sp:4},
+  "CSEC 2300":{t:"Foundations of CSEC",p:[],pt:null,g:4,l:2,prog:"CSEC",avail:{spring:false,fall:true},inst:["Dr. Parra (F)"],unlocks:["CSEC 3355","CSEC 3370"],sw:7,cp:false,sp:1},
+  "CSEC 3319":{t:"Internship (CSEC)",p:["12 Credits in CIS/CSEC"],pt:"credit_hours",g:4,l:3,prog:"CSEC",avail:{spring:true,fall:true},inst:["Prof. Ammari (S/F)"],unlocks:["CIS 4390","CSEC 4390"],alt:"CIS 3319",internshipNote:"Requires internship packet approval from CIS coordinator. Register as CIS 3319 or CSEC 3319 (usually only CIS 3319 has an open section).",sw:2,cp:false,sp:3},
+  "CSEC 3320":{t:"Network Security Management",p:["CIS 3353"],pt:"single",g:0,l:3,prog:"CSEC",avail:{spring:false,fall:true},inst:["Prof. Hernandez (F, online)"],unlocks:[],sw:3,cp:false,sp:3},
+  "CSEC 3355":{t:"Cyber Systems and Components",p:["CSEC 2300"],pt:"single",g:0,l:3,prog:"CSEC",avail:{spring:true,fall:false},inst:["STAFF (S, online)"],unlocks:[],alt:"ENGR 4321",sw:5,cp:false,sp:3},
+  "CSEC 3370":{t:"Laws & Ethics in CSEC",p:["CSEC 2300"],pt:"single",g:0,l:3,prog:"CSEC",avail:{spring:false,fall:true},inst:["Dr. Labay (F)"],unlocks:[],sw:4,cp:false,sp:3},
+  "CSEC 4300":{t:"Malware Analysis",p:["CIS 3335","CIS 3345"],pt:"AND",g:0,l:4,prog:"CSEC",avail:{spring:true,fall:false},inst:["Prof. Hernandez (S, online)"],unlocks:[],sw:1,cp:true,sp:4},
+  "CSEC 4320":{t:"Risk Management and Policy",p:["CIS 3353"],pt:"single",g:0,l:4,prog:"CSEC",avail:{spring:true,fall:false},inst:["Dr. Labay (S)"],unlocks:[],sw:2,cp:false,sp:4},
+  "CSEC 4390":{t:"Practicum",p:["CSEC 3319"],pt:"single",g:0,l:4,prog:"CSEC",avail:{spring:true,fall:false},inst:["Dr. Parra (S)"],unlocks:[],alt:"CIS 4390",sw:1,cp:false,sp:4},
+  "CSEC 4399":{t:"Special Topics in CSEC",topics:{fall:"Innovation & Responsible AI",spring:"Digital Transformation for Engineers"},p:[],pt:null,g:0,l:4,prog:"Optional",avail:{spring:true,fall:true},inst:["Prof. Sordo (S/F)"],unlocks:[],sw:0,cp:false,sp:1},
+  "MATH 1304":{t:"College Algebra",p:[],pt:null,g:3,l:0,prog:"Core",avail:{spring:true,fall:true},inst:[],unlocks:["MATH 2303"],alt:"MATH 0320",credits:3,sw:10,cp:true,sp:1},
+  "MATH 2303":{t:"Intro. Prob Statistics",p:["MATH 1304"],pt:"single",g:2,l:0,prog:"Core",avail:{spring:true,fall:true},inst:[],unlocks:["CIS 3335"],credits:3,sw:8,cp:true,sp:2},
+};
+
+// ═════════════════════════════════════════════════════════════════════════
+// STATE
+// ═════════════════════════════════════════════════════════════════════════
+const state = { completed:new Set(), current:new Set(), planned:new Set(), program:"CSEC", nextSem:"fall", nextSemYear:2026, minPerSem:5, maxPerSem:6, plan:[], mode:"completed", focusMode:true, activeAlts:new Set(), hasRecomputed:false, skippedSuggestions:[] };
+const semColors = ["#f97316","#eab308","#06b6d4","#8b5cf6","#10b981","#6366f1","#14b8a6","#a78bfa","#38bdf8","#fb923c"];
+const statusColors = { completed:"#D4AF37", current:"#C0C0C0", planned:"#CD7F32", eligible:"#f59e0b", locked:"#475569" };
+
+function isVisible(code) {
+  const d = ALL[code];
+  if (!d) return false;
+  if (state.program === "electives") {
+    const electives = new Set(["CIS 1301","CIS 2190","CIS 3330","CIS 3360","CIS 3365","CIS 3380","CIS 4320","CIS 4375","CSEC 4399"]);
+    return electives.has(code);
+  }
+  if (state.program === "all") return d.prog !== "Substitute";
+  // CSEC view: hide CIS-only, Optional, Substitute, and CIS versions (use CSEC versions instead)
+  if (code === "CIS 4390" || code === "CIS 3319") return false;
+  return d.prog !== "CIS-only" && d.prog !== "Optional" && d.prog !== "Substitute";
+}
+
+// Returns true if a course should be treated as visible for planning.
+// A substitute/alt course that the student explicitly selected (completed, enrolled, planned)
+// is "effectively visible" even though isVisible() returns false for it.
+function isVisibleForPlanning(code) {
+  if (isVisible(code)) return true;
+  const d = ALL[code];
+  if (!d) return false;
+  // If student explicitly selected this substitute/alt course, treat it as visible
+  if (state.completed.has(code) || state.current.has(code) || state.planned.has(code)) return true;
+  return false;
+}
+
+function checkEligible(code, doneSet) {
+  const d = ALL[code];
+  if (!d) return false;
+  if (d.pt === null && d.p.length === 0) return true;
+  if (d.pt === "credit_hours") {
+    // Count CIS and CSEC courses (excluding generic Core names)
+    const cisCsecCount = [...doneSet].filter(c => c.startsWith("CIS") || c.startsWith("CSEC")).length;
+    return cisCsecCount >= 4;
+  }
+  const pCodes = d.p.filter(p => ALL[p]);
+  // A prerequisite is met if the student completed it OR its alternative
+  return pCodes.length > 0 && pCodes.every(p => doneSet.has(p) || (ALL[p]?.alt && doneSet.has(ALL[p].alt)));
+}
+
+function relevantUnlocks(code) {
+  return (ALL[code].unlocks || []).filter(u => isVisible(u)).length;
+}
+
+function sortKey(code) {
+  const d = ALL[code], rel = relevantUnlocks(code), sw = d.sw || 0, gatingScore = rel + sw;
+  return [gatingScore > 0 ? 0 : 1, -gatingScore, d.sp || 99, d.l, parseInt(code.split(" ")[1]) || 9999, code];
+}
+
+function cmpSort(a, b) {
+  const ka = sortKey(a), kb = sortKey(b);
+  for (let i = 0; i < ka.length; i++) {
+    if (ka[i] !== kb[i]) return ka[i] < kb[i] ? -1 : 1;
+  }
+  return 0;
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// PLANNING ENGINE — respects Spring / Fall availability
+// ═════════════════════════════════════════════════════════════════════════
+function _buildPlan(doneBase, startSem, startSemNum) {
+  const done = new Set(doneBase);
+  const remaining = new Set();
+  Object.keys(ALL).forEach(c => { if (!done.has(c) && isVisibleForPlanning(c)) remaining.add(c); });
+  for (const c of done) {
+    const altCode = ALL[c]?.alt;
+    if (altCode) remaining.delete(altCode);
+  }
+
+  // Estimate total semesters to target 8 (4 years)
+  const totalRemaining = remaining.size;
+  const targetSems = 8;
+
+  // Identify deferrable courses: internship and capstone/practicum
+  const internshipCodes = new Set(["CSEC 3319","CIS 3319"]);
+  const capstoneCodes = new Set(["CSEC 4390","CIS 4390"]);
+
+  const plan = [];
+  let curSem = startSem || state.nextSem;
+  let semNum = startSemNum || 0;
+
+  while (remaining.size > 0 && semNum < 16) {
+    semNum++;
+    const baseYear = state.nextSemYear || new Date().getFullYear();
+    const baseSem = state.nextSem || "fall";
+    // semNum is 1-based: sem 1 = first semester
+    // Count how many year increments from base
+    let calYear = baseYear;
+    let iterSem = baseSem;
+    for (let i = 1; i < semNum; i++) {
+      if (iterSem === "fall") { iterSem = "spring"; calYear++; }
+      else { iterSem = "fall"; }
+    }
+    const label = (curSem === "fall" ? "Fall" : "Spring") + " " + calYear;
+
+    const eligible = [];
+    for (const code of remaining) {
+      const d = ALL[code];
+      if (d.prog === "Optional") continue; // Optional courses excluded from planning
+      if (!(d.avail || {})[curSem]) continue;
+      if (!checkEligible(code, done)) continue;
+      if (d.alt && done.has(d.alt)) continue;
+      eligible.push(code);
+    }
+    eligible.sort(cmpSort);
+
+    // Dynamic target: aim to finish remaining in remaining target semesters
+    const semsLeft = Math.max(targetSems - semNum + 1, 1);
+    const dynamicTarget = Math.ceil(remaining.size / semsLeft);
+    const target = Math.max(state.minPerSem, Math.min(state.maxPerSem, dynamicTarget));
+
+    // Pick courses, but defer internship and capstone unless in last 2 semesters
+    const estimatedTotalSems = semNum + Math.ceil((remaining.size - Math.min(eligible.length, target)) / state.minPerSem);
+    const inLastTwo = (estimatedTotalSems - semNum) <= 1; // within last 2 semesters
+
+    const picked = [];
+    const pickedAlts = new Set();
+    const deferred = [];
+    const deferredCore = []; // Core courses deferred by the soft cap
+
+    // Core course distribution cap: max 3 in semesters 1-2, max 2 afterward
+    const coreCap = semNum <= 2 ? 3 : 2;
+    let coreCount = 0;
+
+    for (const code of eligible) {
+      if (picked.length >= target) break;
+      const d = ALL[code];
+      if (d.alt && pickedAlts.has(d.alt)) continue;
+
+      // Defer internship until last 2 semesters (summer internship → Fall registration)
+      if (internshipCodes.has(code) && !inLastTwo) {
+        deferred.push(code);
+        continue;
+      }
+      // Defer capstone unless internship is done
+      if (capstoneCodes.has(code)) {
+        // Capstone should ideally be last or second-to-last semester
+        const internDone = done.has("CSEC 3319") || done.has("CIS 3319");
+        if (!internDone) { deferred.push(code); continue; }
+      }
+
+      // Core course distribution cap (soft)
+      if (d.prog === "Core" && coreCount >= coreCap) {
+        deferredCore.push(code);
+        continue;
+      }
+
+      picked.push(code);
+      if (d.prog === "Core") coreCount++;
+      if (d.alt) pickedAlts.add(code);
+    }
+
+    // If we still have room (not enough major courses), backfill with deferred Core
+    for (const code of deferredCore) {
+      if (picked.length >= target) break;
+      const d = ALL[code];
+      if (d.alt && pickedAlts.has(d.alt)) continue;
+      picked.push(code);
+      if (d.alt) pickedAlts.add(code);
+    }
+
+    // If we have room and deferred courses, add them back if we're in last 2 semesters
+    if (inLastTwo) {
+      for (const code of deferred) {
+        if (picked.length >= target) break;
+        const d = ALL[code];
+        if (d.alt && pickedAlts.has(d.alt)) continue;
+        picked.push(code);
+        if (d.alt) pickedAlts.add(code);
+      }
+    }
+
+    if (picked.length > 0) {
+      plan.push({ num:semNum, label, sem:curSem, courses:picked, color:semColors[(semNum-1)%semColors.length] });
+      picked.forEach(c => {
+        done.add(c);
+        remaining.delete(c);
+        const altCode = ALL[c]?.alt;
+        if (altCode) remaining.delete(altCode);
+      });
+    }
+    curSem = curSem === "fall" ? "spring" : "fall";
+  }
+  if (remaining.size > 0) {
+    plan.push({ num:semNum+1, label:"Unscheduled", sem:"?", courses:[...remaining].sort(), color:"#64748b" });
+  }
+
+  // Check if final semester has < 3 courses
+  if (plan.length > 0 && plan[plan.length - 1].courses.length < 3 && plan[plan.length - 1].label !== "Unscheduled") {
+    plan[plan.length - 1].flag = "Final semester has < 3 courses — consider redistributing";
+  }
+
+  return plan;
+}
+
+function computePlan() {
+  // Step 1: Build "suggested" plan using completed + current only (NOT planned)
+  const baseDone = [...state.completed, ...state.current];
+  const suggestedPlan = _buildPlan(baseDone);
+
+  // Store the first semester suggestion for reference
+  state.suggestedFirstSem = suggestedPlan.length > 0 ? [...suggestedPlan[0].courses] : [];
+  state.suggestedFirstLabel = suggestedPlan.length > 0 ? suggestedPlan[0].label : "";
+  state.suggestedFirstColor = suggestedPlan.length > 0 ? suggestedPlan[0].color : semColors[0];
+
+  if (state.planned.size === 0 && !state.hasRecomputed) {
+    // No planned courses and no recompute — use the pure suggested plan
+    state.plan = suggestedPlan;
+  } else if (!state.hasRecomputed) {
+    // ── PRE-RECOMPUTE: student is selecting planned courses ──
+    // First semester = all suggested courses + any extra planned from other semesters
+    // (student sees full suggestion list with checkmarks on their picks)
+    // If a substitute is planned (e.g., MIS 3363), remove its program course (CIS 3310) from suggestions
+    const subTargets = new Set();
+    for (const [misCode, info] of Object.entries(SUBSTITUTION_MAP)) {
+      if (state.planned.has(misCode)) subTargets.add(info.target);
+    }
+    const filteredSuggestions = state.suggestedFirstSem.filter(c => !subTargets.has(c));
+    const sugSet = new Set(filteredSuggestions);
+    const extraPlanned = [...state.planned].filter(c => !sugSet.has(c) && isVisibleForPlanning(c));
+    const firstSemCourses = [...filteredSuggestions, ...extraPlanned];
+
+    const firstSem = {
+      num: 1,
+      label: state.suggestedFirstLabel,
+      sem: state.nextSem,
+      courses: firstSemCourses,
+      color: state.suggestedFirstColor
+    };
+
+    // Future semesters: exclude ALL first-semester courses to avoid duplicates
+    const firstSemDone = [...baseDone, ...firstSemCourses];
+    const nextSem = state.nextSem === "fall" ? "spring" : "fall";
+    const futurePlan = _buildPlan(firstSemDone, nextSem, 1);
+
+    state.plan = [firstSem, ...futurePlan];
+  } else {
+    // ── POST-RECOMPUTE: student confirmed their picks ──
+    // First semester = ONLY planned courses (checked ones)
+    // Unselected suggestions pushed to future semesters
+    const plannedArr = [...state.planned].filter(c => isVisibleForPlanning(c));
+
+    // Record which suggestions the student skipped (for the note in Copy Plan)
+    // A suggestion is NOT skipped if the student planned its alt/substitute instead
+    state.skippedSuggestions = state.suggestedFirstSem.filter(c => {
+      if (state.planned.has(c)) return false;
+      const altCode = ALL[c]?.alt;
+      if (altCode && state.planned.has(altCode)) return false;
+      return true;
+    });
+
+    const firstSem = {
+      num: 1,
+      label: state.suggestedFirstLabel,
+      sem: state.nextSem,
+      courses: plannedArr,
+      color: state.suggestedFirstColor
+    };
+
+    // Future semesters: only planned are done, skipped suggestions flow back to pool
+    const futureDone = [...baseDone, ...state.planned];
+    const nextSem = state.nextSem === "fall" ? "spring" : "fall";
+    const futurePlan = _buildPlan(futureDone, nextSem, 1);
+
+    state.plan = [firstSem, ...futurePlan];
+  }
+}
+
+function getStatus(code) {
+  if (state.completed.has(code)) return "completed";
+  if (state.current.has(code)) return "current";
+  if (state.planned.has(code)) return "planned";
+  // If alt is toggled and the alt course is completed/current/planned, reflect that
+  const altCode = ALL[code]?.alt;
+  if (altCode) {
+    if (state.completed.has(altCode)) return "completed";
+    if (state.current.has(altCode)) return "current";
+    if (state.planned.has(altCode)) return "planned";
+  }
+  if (!isVisible(code)) return "hidden";
+  if (state.plan.length > 0 && state.plan[0].courses.includes(code)) return "eligible";
+  return "locked";
+}
+
+function getPlanColor(code) {
+  for (const s of state.plan) { if (s.courses.includes(code)) return s.color; }
+  return null;
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// SVG SETUP
+// ═════════════════════════════════════════════════════════════════════════
+const graphPanel = document.getElementById("graphPanel");
+let gW = graphPanel.clientWidth, gH = graphPanel.clientHeight;
+const svg = d3.select("#graph").attr("width", gW).attr("height", gH);
+const gMain = svg.append("g");
+const zoom = d3.zoom().scaleExtent([0.25, 3]).on("zoom", e => gMain.attr("transform", e.transform));
+svg.call(zoom);
+
+const defs = svg.append("defs");
+["completed","current","eligible","locked","plan"].forEach(st => {
+  const col = st==="plan"?"#f59e0b":(statusColors[st]||"#475569");
+  defs.append("marker").attr("id","arrow-"+st).attr("viewBox","0 0 10 6").attr("refX",10).attr("refY",3)
+    .attr("markerWidth",7).attr("markerHeight",5).attr("orient","auto")
+    .append("path").attr("d","M0,0 L10,3 L0,6 Z").attr("fill",col).attr("opacity",0.5);
+});
+defs.append("filter").attr("id","glow")
+  .append("feDropShadow").attr("dx",0).attr("dy",0).attr("stdDeviation",4).attr("flood-color","#f59e0b").attr("flood-opacity",0.6);
+
+// We'll rebuild nodes/links when program changes
+let nodes = [], links = [], nodeMap = {};
+let linkEls, nodeEls, labelEls, simulation;
+
+const linkG = gMain.append("g");
+const nodeG = gMain.append("g");
+const labelG = gMain.append("g");
+
+function nodeRadius(d) {
+  if (d.isGeneric) return 20; // used for collision detection
+  if (d.g >= 30) return 26;
+  if (d.g >= 10) return 22;
+  if (d.g > 0) return 18;
+  return 15;
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// REBUILD: completely recreates nodes and edges for current program view
+// ═════════════════════════════════════════════════════════════════════════
+function rebuild() {
+  if (simulation) simulation.stop();
+
+  // Filter courses
+  const visibleCodes = Object.keys(ALL).filter(c => isVisible(c));
+  const visibleSet = new Set(visibleCodes);
+
+  nodes = visibleCodes.map(code => ({ id:code, ...ALL[code], x:gW/2, y:gH/2 }));
+  nodeMap = {};
+  nodes.forEach(n => nodeMap[n.id] = n);
+
+  links = [];
+  visibleCodes.forEach(code => {
+    ALL[code].p.filter(p => visibleSet.has(p)).forEach(pre => {
+      links.push({ source:pre, target:code });
+    });
+  });
+
+  // Rebind links
+  linkEls = linkG.selectAll("line").data(links, d => (d.source.id||d.source)+"-"+(d.target.id||d.target));
+  linkEls.exit().remove();
+  linkEls = linkEls.enter().append("line").merge(linkEls)
+    .attr("stroke","#33415544").attr("stroke-width",1.5);
+
+  // Rebind nodes
+  nodeEls = nodeG.selectAll("g.node").data(nodes, d => d.id);
+  nodeEls.exit().remove();
+  const enter = nodeEls.enter().append("g").attr("class","node").attr("cursor","pointer");
+  // Circle for normal nodes
+  enter.filter(d => !d.isGeneric).append("circle").attr("class","node-circle");
+  // Rectangle for generic core nodes
+  enter.filter(d => d.isGeneric).append("rect").attr("class","node-circle node-rect");
+  enter.append("text").attr("class","node-code").attr("text-anchor","middle").attr("dy","0.35em")
+    .attr("pointer-events","none").attr("font-weight","600");
+  enter.append("text").attr("class","node-name").attr("text-anchor","middle").attr("dy","2.8em")
+    .attr("pointer-events","none").attr("font-size","8.5px");
+  // Alt toggle indicator (only visible on nodes with alternatives)
+  const altG = enter.append("g").attr("class","alt-group");
+  altG.append("circle").attr("class","alt-toggle-bg").attr("r",8);
+  altG.append("text").attr("class","alt-toggle-text").attr("dy","0.35em").text("⇄");
+  nodeEls = enter.merge(nodeEls);
+
+  // Reattach events
+  nodeEls.on("click", onNodeClick).on("contextmenu", onNodeRightClick)
+    .on("mouseover", onNodeOver).on("mousemove", onNodeMove).on("mouseout", onNodeOut);
+
+  const drag = d3.drag()
+    .on("start",(e,d)=>{if(!e.active)simulation.alphaTarget(0.15).restart();d.fx=d.x;d.fy=d.y})
+    .on("drag",(e,d)=>{d.fx=e.x;d.fy=e.y})
+    .on("end",(e,d)=>{if(!e.active)simulation.alphaTarget(0);d.fx=null;d.fy=null});
+  nodeEls.call(drag);
+
+  // Level labels
+  labelG.selectAll("text").remove();
+
+  doLayout();
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// GRID LAYOUT — fixed positions by level, evenly spaced
+// ═════════════════════════════════════════════════════════════════════════
+function doLayout() {
+  if (simulation) simulation.stop();
+  const padX = 50, padY = 24, bottomPad = 16;
+
+  // 7 visual rows: Core-A (generic), Core-B (real codes), 1000, 2000, 3000-A, 3000-B, 4000
+  const rowCount = 7;
+  const rowH = (gH - padY - bottomPad) / rowCount;
+
+  labelG.selectAll("*").remove();
+
+  const rowLabels = ["Core Curriculum (A)","Core Curriculum (B)","1000-Level","2000-Level","3000-Level (A)","3000-Level (B)","4000-Level"];
+  for (let ri = 0; ri < rowCount; ri++) {
+    const y0 = padY + ri * rowH;
+    labelG.append("line").attr("x1",0).attr("x2",gW).attr("y1",y0).attr("y2",y0)
+      .attr("stroke","#1e293b").attr("stroke-width",1);
+    labelG.append("text").attr("class","level-label")
+      .attr("x",8).attr("y",y0+15).text(rowLabels[ri]);
+  }
+
+  const levelGroups = {};
+  nodes.forEach(n => { if (!levelGroups[n.l]) levelGroups[n.l] = []; levelGroups[n.l].push(n); });
+
+  const usableW = gW - 2 * padX;
+
+  // Smart adjacency: order nodes so that connected ones are near each other
+  function adjacencySort(group) {
+    if (group.length <= 2) return group;
+    // Build adjacency from links
+    const adj = {};
+    group.forEach(n => adj[n.id] = new Set());
+    links.forEach(l => {
+      const s = l.source.id || l.source, t = l.target.id || l.target;
+      if (adj[s] && adj[t]) { adj[s].add(t); adj[t].add(s); }
+      // Also consider cross-row: if a node in this group has a child/parent in another row,
+      // and another node in this group also connects to that same external node, place them near
+      if (adj[s]) {
+        group.forEach(n => {
+          if (n.id !== s && ALL[n.id]?.unlocks?.includes(t)) adj[s].add(n.id);
+          if (n.id !== s && ALL[t]?.unlocks?.includes(n.id)) adj[s].add(n.id);
+        });
+      }
+    });
+    // Greedy chain: start with highest gating, then pick nearest neighbor
+    const sorted = [];
+    const used = new Set();
+    // Start with highest gating score
+    group.sort((a,b) => b.g - a.g);
+    let cur = group[0];
+    sorted.push(cur);
+    used.add(cur.id);
+    while (sorted.length < group.length) {
+      // Find unused neighbor with most shared connections
+      let best = null, bestScore = -1;
+      for (const n of group) {
+        if (used.has(n.id)) continue;
+        let score = adj[cur.id]?.has(n.id) ? 10 : 0;
+        // Boost if they share a common parent or child
+        for (const s of sorted) {
+          if (adj[s.id]?.has(n.id)) score += 2;
+        }
+        score += n.g * 0.01; // tiebreak by gating
+        if (score > bestScore) { bestScore = score; best = n; }
+      }
+      if (!best) best = group.find(n => !used.has(n.id));
+      sorted.push(best);
+      used.add(best.id);
+      cur = best;
+    }
+    return sorted;
+  }
+
+  function placeRow(group, rowIdx) {
+    const ordered = adjacencySort(group);
+    const y = padY + rowIdx * rowH + rowH / 2 + 4;
+    const spacing = usableW / (ordered.length + 1);
+    ordered.forEach((n,i) => {
+      n.targetX = padX + (i + 1) * spacing;
+      n.targetY = y;
+      n.x = n.targetX;
+      n.y = n.targetY;
+    });
+  }
+
+  // Split Core (level 0): generic placeholders in row A, real codes in row B
+  const group0 = (levelGroups[0] || []).slice();
+  const row0A = group0.filter(n => n.isGeneric);
+  const row0B = group0.filter(n => !n.isGeneric);
+
+  placeRow(row0A, 0); // Core-A (generic rectangles) → row 0
+  placeRow(row0B, 1); // Core-B (real codes) → row 1
+
+  placeRow(levelGroups[1] || [], 2); // 1000-level → row 2
+  placeRow(levelGroups[2] || [], 3); // 2000-level → row 3
+
+  // Split 3000-level into two sub-rows
+  const forceRowB = new Set(["CIS 3335", "CIS 3345"]);
+  const group3 = (levelGroups[3] || []).slice();
+  group3.sort((a,b) => b.g - a.g);
+  const row3A = group3.filter(n => !forceRowB.has(n.id));
+  const row3B_forced = group3.filter(n => forceRowB.has(n.id));
+  const targetHalf = Math.ceil(group3.length / 2);
+  while (row3A.length > targetHalf && row3A.length > row3B_forced.length) {
+    row3B_forced.push(row3A.pop());
+  }
+  const row3B = row3B_forced;
+
+  placeRow(row3A, 4);
+  placeRow(row3B, 5);
+
+  placeRow(levelGroups[4] || [], 6);
+
+  simulation = d3.forceSimulation(nodes)
+    .force("x", d3.forceX(d => d.targetX).strength(0.95))
+    .force("y", d3.forceY(d => d.targetY).strength(0.95))
+    .force("collide", d3.forceCollide(d => d.isGeneric ? 62 : nodeRadius(d) + 8).strength(1))
+    .force("link", d3.forceLink(links).id(d => d.id).distance(60).strength(0))
+    .on("tick", ticked)
+    .alpha(0.8);
+}
+
+function ticked() {
+  linkEls
+    .attr("x1",d=>d.source.x).attr("y1",d=>d.source.y)
+    .attr("x2",d=>{
+      const dx=d.target.x-d.source.x,dy=d.target.y-d.source.y;
+      const dist=Math.sqrt(dx*dx+dy*dy)||1;const r=nodeRadius(d.target)+4;
+      return d.target.x-dx/dist*r;
+    }).attr("y2",d=>{
+      const dx=d.target.x-d.source.x,dy=d.target.y-d.source.y;
+      const dist=Math.sqrt(dx*dx+dy*dy)||1;const r=nodeRadius(d.target)+4;
+      return d.target.y-dy/dist*r;
+    });
+  nodeEls.attr("transform",d=>`translate(${d.x},${d.y})`);
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// VISUAL UPDATE (colors, plan, stats — no structural change)
+// ═════════════════════════════════════════════════════════════════════════
+function fullUpdate() {
+  computePlan();
+  updateGraphColors();
+  updatePlanPanel();
+  updateCopyBoxes();
+  updateStats();
+  updateListPanel();
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// LIST VIEW — same state as the graph, rendered as tap-friendly rows
+// ═════════════════════════════════════════════════════════════════════════
+const LIST_GROUPS = [[0,"Core Curriculum"],[1,"1000-Level"],[2,"2000-Level"],[3,"3000-Level"],[4,"4000-Level"]];
+const STATUS_LABELS = { completed:"Completed", current:"Enrolled", planned:"Planned", eligible:"Eligible next", locked:"Locked" };
+const MODE_LABELS = { completed:"Completed", current:"Enrolled", planned:"Planned" };
+
+function escapeHtml(t) {
+  return String(t).replace(/[&<>"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
+}
+
+function updateListPanel() {
+  const hint = document.getElementById("listHint");
+  hint.innerHTML = `Tap a course to mark it <b style="color:${statusColors[state.mode]}">${MODE_LABELS[state.mode]}</b>. Change the mode in the header.`;
+  const visible = Object.keys(ALL).filter(c => isVisible(c));
+  let html = "";
+  LIST_GROUPS.forEach(([lvl, label]) => {
+    const codes = visible.filter(c => ALL[c].l === lvl).sort((a, b) => a.localeCompare(b, undefined, {numeric:true}));
+    if (codes.length === 0) return;
+    html += `<div class="list-group"><h3>${label}</h3>`;
+    codes.forEach(code => {
+      const d = ALL[code];
+      const showAlt = state.activeAlts.has(code) && d.alt && ALL[d.alt];
+      const eff = showAlt ? d.alt : code;
+      const ed = ALL[eff];
+      const status = getStatus(code);
+      const col = statusColors[status] || "#475569";
+      const avail = [ed.avail?.spring ? "S" : "", ed.avail?.fall ? "F" : ""].filter(Boolean).join("/");
+      const altBtn = (d.alt && ALL[d.alt])
+        ? `<button class="list-alt" data-alt="${escapeHtml(code)}" title="Switch to ${escapeHtml(showAlt ? code : d.alt)}">⇄ ${escapeHtml(showAlt ? code : d.alt)}</button>` : "";
+      html += `<div class="list-row" role="button" tabindex="0" data-code="${escapeHtml(eff)}">
+        <span class="list-dot${d.cp ? " cp" : ""}" style="background:${col}"></span>
+        <span class="list-main"><span class="list-code">${escapeHtml(ed.isGeneric ? ed.t : eff)}</span><span class="list-title">${escapeHtml(ed.isGeneric ? "Core requirement" : ed.t)}</span></span>
+        ${altBtn}
+        <span class="list-avail">${avail}</span>
+        <span class="list-status" style="background:${col};color:${status === "locked" ? "#e2e8f0" : "#0f172a"}">${STATUS_LABELS[status] || ""}</span>
+      </div>`;
+    });
+    html += `</div>`;
+  });
+  const body = document.getElementById("listBody");
+  const focused = document.activeElement?.closest?.(".list-row")?.dataset.code;
+  body.innerHTML = html;
+  // Keep keyboard focus on the same course after re-render
+  if (focused) body.querySelector(`.list-row[data-code="${CSS.escape(focused)}"]`)?.focus();
+}
+
+document.getElementById("listBody").addEventListener("click", e => {
+  const altEl = e.target.closest(".list-alt");
+  if (altEl) {
+    const code = altEl.dataset.alt;
+    if (state.activeAlts.has(code)) state.activeAlts.delete(code); else state.activeAlts.add(code);
+    updateGraphColors();
+    updateListPanel();
+    return;
+  }
+  const row = e.target.closest(".list-row");
+  if (row) toggleCourse(row.dataset.code);
+});
+document.getElementById("listBody").addEventListener("keydown", e => {
+  const row = e.target.closest(".list-row");
+  if (row && e.target === row && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggleCourse(row.dataset.code); }
+});
+
+function updateGraphColors() {
+  nodeEls.each(function(d) {
+    const st = getStatus(d.id);
+    const planCol = getPlanColor(d.id);
+    const col = (st==="completed"||st==="current"||st==="planned") ? statusColors[st] : (planCol || statusColors[st] || "#475569");
+    const r = nodeRadius(d);
+    const el = d3.select(this);
+
+    // Brighter fills: completed/current get 50% opacity, eligible 45%, locked 35%
+    const fillOpacity = (st==="completed"||st==="current"||st==="planned") ? "80" : st==="eligible" ? "70" : "50";
+    const isRect = !!d.isGeneric;
+    const ncEl = el.select(".node-circle");
+    if (isRect) {
+      const rw = 110, rh = 36;
+      ncEl.attr("x", -rw/2).attr("y", -rh/2).attr("width", rw).attr("height", rh).attr("rx", 6).attr("ry", 6);
+    } else {
+      ncEl.attr("r", r);
+    }
+    const isCp = ALL[d.id].cp;
+    const isActive = (st==="completed"||st==="current"||st==="planned");
+    ncEl
+      .attr("fill", col + fillOpacity)
+      .attr("stroke", isActive ? col : (isCp ? "#ef4444" : col))
+      .attr("stroke-width", isActive ? 3.5 : (isCp ? 3.5 : st==="eligible" ? 3 : 2))
+      .attr("stroke-dasharray", isActive ? "5,3" : (isCp ? "1,5" : "none"))
+      .attr("stroke-linecap", isCp && !isActive ? "round" : "butt")
+      .attr("filter", st==="eligible" ? "url(#glow)" : "none")
+      .attr("opacity", 1);
+
+    el.select(".node-code")
+      .text(d.isGeneric ? d.t : d.id)
+      .attr("fill", "#fff")
+      .attr("font-size", d.isGeneric ? "10px" : (r >= 22 ? "9.5px" : "8.5px"))
+      .attr("opacity", 1);
+
+    if (d.isGeneric) {
+      el.select(".node-name").text("").attr("opacity", 0);
+    } else {
+      const name = d.t.length > 22 ? d.t.slice(0,20)+"..." : d.t;
+      el.select(".node-name").text(name).attr("fill","#cbd5e1").attr("opacity", 1);
+    }
+
+    // Alt toggle indicator
+    const hasAlt = !!d.alt && isVisible(d.id);
+    const altG = el.select(".alt-group");
+    altG.attr("display", hasAlt ? "block" : "none");
+    if (hasAlt) {
+      if (d.isGeneric) {
+        altG.attr("transform", `translate(47,-10)`);
+      } else {
+        const r = nodeRadius(d);
+        altG.attr("transform", `translate(${r - 2},${-r + 2})`);
+      }
+      altG.select(".alt-toggle-bg").attr("fill", state.activeAlts.has(d.id) ? "#7c3aed" : "#1e293b");
+    }
+
+    // If this node has its alt toggled ON, show the alt course code and name
+    if (state.activeAlts.has(d.id) && d.alt && ALL[d.alt]) {
+      const altData = ALL[d.alt];
+      el.select(".node-code").text(d.alt);
+      const altName = altData.t.length > 22 ? altData.t.slice(0,20)+"..." : altData.t;
+      el.select(".node-name").text(altName);
+    }
+  });
+
+  linkEls.each(function(l) {
+    const sid=l.source.id||l.source, tid=l.target.id||l.target;
+    const ss=getStatus(sid), ts=getStatus(tid);
+    const el=d3.select(this);
+    let col="#33415544",width=1,opacity=0.2,marker="locked";
+
+    if ((ss==="completed"||ss==="current"||ss==="planned")&&(ts==="completed"||ts==="current"||ts==="planned")) {
+      col="#D4AF37";width=2;opacity=0.7;marker="completed";
+    } else if ((ss==="completed"||ss==="current")&&ts==="eligible") {
+      col="#f59e0b";width=2;opacity=0.7;marker="eligible";
+    } else {
+      const sp=getPlanColor(sid),tp=getPlanColor(tid);
+      if(sp&&tp){col=tp+"88";width=1.5;opacity=0.35;marker="plan";}
+    }
+    el.attr("stroke",col).attr("stroke-width",width).attr("opacity",opacity).attr("marker-end",`url(#arrow-${marker})`);
+  });
+}
+
+function updatePlanPanel() {
+  const area = document.getElementById("planArea");
+  const copyPlanBtn = document.getElementById("btnCopyPlan");
+  if (state.plan.length === 0) {
+    area.innerHTML = '<div style="padding:20px;color:#94a3b8;text-align:center;font-size:13px">Select completed courses on the graph to generate your semester-by-semester plan.</div>';
+    copyPlanBtn.style.display = "none";
+    document.getElementById("submitBar").style.display = "none";
+    document.getElementById("btnRecompute").style.display = "none";
+    return;
+  }
+  copyPlanBtn.style.display = "inline-block";
+  document.getElementById("submitBar").style.display = "block";
+  // Show Recompute when student has planned courses (pre-recompute) or after recompute for re-adjustments
+  document.getElementById("btnRecompute").style.display = (state.planned.size > 0 || state.hasRecomputed) ? "inline-block" : "none";
+  let html = '';
+  state.plan.forEach((sem, semIdx) => {
+    const isFirstSem = semIdx === 0 && (state.planned.size > 0 || state.hasRecomputed);
+    const loadLabel = sem.courses.length <= 3 ? 'Light' : sem.courses.length <= 5 ? 'Moderate' : 'Heavy';
+    const loadColor = sem.courses.length <= 3 ? '#22c55e' : sem.courses.length <= 5 ? '#eab308' : '#ef4444';
+
+    html += `<div class="sem-col">`;
+    html += `<div class="sem-header"><span class="sem-label" style="color:${sem.color}">${sem.label}`;
+    if (isFirstSem && state.hasRecomputed) {
+      html += ` <span style="background:#CD7F32;color:#1e293b;font-size:11px;padding:1px 7px;border-radius:8px;margin-left:6px;font-weight:600">✓ Confirmed</span>`;
+    } else if (isFirstSem) {
+      html += ` <span style="background:#64748b;color:#fff;font-size:11px;padding:1px 7px;border-radius:8px;margin-left:6px;font-weight:600">Selecting…</span>`;
+    }
+    html += `</span>`;
+    html += `<span class="sem-count" style="margin-right:6px">${sem.courses.length} course${sem.courses.length!==1?"s":""}</span>`;
+    html += `<span class="sem-count" style="background:${loadColor};color:#1e293b;font-weight:600">${loadLabel}</span></div>`;
+
+    // Build reverse substitution lookup: misCode -> target program code
+    const revSubMap = {};
+    for (const [misCode, info] of Object.entries(SUBSTITUTION_MAP)) {
+      revSubMap[misCode] = info;
+    }
+
+    // Track which program courses have been rendered via their substitute
+    const renderedProgramCourses = new Set();
+
+    sem.courses.forEach(code => {
+      const d = ALL[code];
+      if (!d) return;
+
+      // Check if this is a substitute course (e.g., MIS 3363) — if so, render the program course instead
+      const subInfo = revSubMap[code];
+      if (subInfo && (state.planned.has(code) || state.completed.has(code) || state.current.has(code))) {
+        const progCode = subInfo.target;
+        const progD = ALL[progCode];
+        if (progD && !renderedProgramCourses.has(progCode)) {
+          renderedProgramCourses.add(progCode);
+          const av = progD.avail?.spring && progD.avail?.fall ? "S/F" : progD.avail?.spring ? "S" : progD.avail?.fall ? "F" : "?";
+          const dotColor = '#CD7F32';
+          const checkmark = isFirstSem ? `<span style="color:#CD7F32;font-weight:700;margin-right:4px">✓</span>` : '';
+          const cpStyle = progD.cp ? 'border:2px dotted #ef4444;box-shadow:0 0 4px #ef444466;' : '';
+          html += `<div class="sem-course">`;
+          html += `${checkmark}<div class="sem-dot" style="background:${dotColor};${cpStyle}"></div>`;
+          html += `<span class="sem-code" style="color:${dotColor}">${progCode}</span>`;
+          html += `<span class="sem-title">${progD.t}</span>`;
+          html += `<span class="sem-avail">${av}</span></div>`;
+          // Substitution warning note
+          html += `<div style="padding:2px 8px 2px 26px;font-size:11px;color:#f59e0b;line-height:1.3">⚠ Substitute: ${code} — ${d.t}</div>`;
+        }
+        return; // Don't render the MIS course as a separate entry
+      }
+
+      // Skip if this program course was already rendered via its substitute above
+      if (renderedProgramCourses.has(code)) return;
+
+      const av = d.avail?.spring && d.avail?.fall ? "S/F" : d.avail?.spring ? "S" : d.avail?.fall ? "F" : "?";
+      const isPlanned = state.planned.has(code);
+      const isSuggestion = isFirstSem && !state.hasRecomputed && state.suggestedFirstSem.includes(code) && !isPlanned;
+      const displayCode = d.isGeneric ? d.t : code;
+      const dotColor = isPlanned ? '#CD7F32' : sem.color;
+      const checkmark = isPlanned && isFirstSem ? `<span style="color:#CD7F32;font-weight:700;margin-right:4px">✓</span>` : '';
+      const sugStyle = isSuggestion ? 'opacity:0.55;' : '';
+
+      html += `<div class="sem-course" style="${sugStyle}">`;
+      const cpStyle = d.cp ? 'border:2px dotted #ef4444;box-shadow:0 0 4px #ef444466;' : '';
+      html += `${checkmark}<div class="sem-dot" style="background:${dotColor};${cpStyle}"></div>`;
+      html += `<span class="sem-code" style="color:${dotColor}">${displayCode}</span>`;
+      html += `<span class="sem-title">${d.t}</span>`;
+      html += `<span class="sem-avail">${av}</span></div>`;
+      // Internship note
+      if (d.internshipNote) {
+        html += `<div style="padding:2px 8px 2px 26px;font-size:11px;color:#f59e0b;line-height:1.3">⚠ ${d.internshipNote}</div>`;
+      }
+      // Override note (Banner prerequisite mismatch) — show in any semester
+      if (OVERRIDE_COURSES.has(code)) {
+        html += `<div style="padding:2px 8px 2px 26px;font-size:11px;color:#f59e0b;line-height:1.3">⚠ Requires prerequisite override in Banner. Contact advisor.</div>`;
+      }
+    });
+
+    // Post-recompute: show notes about skipped suggestions
+    if (isFirstSem && state.hasRecomputed && state.skippedSuggestions.length > 0) {
+      const skippedNames = state.skippedSuggestions.map(c => {
+        const d = ALL[c]; return d ? (d.isGeneric ? d.t : c) : c;
+      }).join(', ');
+      html += `<div style="padding:6px 8px 2px 8px;font-size:11px;color:#94a3b8;line-height:1.4;border-top:1px solid #334155;margin-top:4px">`;
+      html += `ℹ Suggested but not selected: ${skippedNames} — moved to future semesters</div>`;
+    }
+
+    // Show flag if final semester has < 3 courses
+    if (sem.flag) {
+      html += `<div style="padding:6px 8px 2px 8px;font-size:11px;color:#f59e0b;line-height:1.4;margin-top:4px">⚠ ${sem.flag}</div>`;
+    }
+
+    html += `</div>`;
+  });
+  area.innerHTML = html;
+}
+
+// ── Substitution & Override detection ──────────────────────────────────
+// Substitution pairs: { completed_MIS: required_CIS }
+const SUBSTITUTION_MAP = {
+  "MIS 3363":  { target: "CIS 3310",  misTitle: "Design/Implementation of Database Systems", cisTitle: "Database Management Systems" },
+  "MIS 3362":  { target: "CIS 3362",  misTitle: "Systems Analysis (MIS)", cisTitle: "Systems Analysis and Design" },
+  "MATH 0320": { target: "MATH 1304", misTitle: "Core Math Preparations", cisTitle: "College Algebra" },
+  "CIS 4390":  { target: "CSEC 4390", misTitle: "Capstone",              cisTitle: "Practicum", csecOnly: true },
+  "CIS 3319":  { target: "CSEC 3319", misTitle: "Internship in CIS",     cisTitle: "Internship in Cyber Security Systems", csecOnly: true },
+  "ENGR 4321": { target: "CSEC 3355", misTitle: "Microcontrollers/Embedded Systems", cisTitle: "Cyber Systems and Components", csecOnly: true }
+};
+// Courses with critical Banner prerequisite mismatches requiring an override
+const OVERRIDE_COURSES = new Set(["CIS 3345", "CIS 4370", "CSEC 3320", "CSEC 4320"]);
+
+function detectSubstitutions() {
+  const subs = [];
+  // Check all student selections (completed + current + planned) for substitute courses
+  const allSelected = new Set([...state.completed, ...state.current, ...state.planned]);
+  for (const [misCode, info] of Object.entries(SUBSTITUTION_MAP)) {
+    // Only flag if the student selected (completed, current, or planned) the substitute course
+    if (!allSelected.has(misCode)) continue;
+    // For csecOnly entries, only flag when in CSEC program
+    if (info.csecOnly && state.program !== "CSEC") continue;
+    const status = state.completed.has(misCode) ? "Completed" : state.current.has(misCode) ? "In Progress" : "Planned";
+    subs.push({ misCode, misTitle: info.misTitle, target: info.target, cisTitle: info.cisTitle, status });
+  }
+  return subs;
+}
+
+function detectOverrides() {
+  const overrides = [];
+  // Check only the immediately planned next semester for Banner prerequisite mismatches
+  for (const code of OVERRIDE_COURSES) {
+    if (state.planned.has(code)) {
+      const d = ALL[code];
+      if (d) overrides.push({ code, title: d.t });
+    }
+  }
+  return overrides.sort((a, b) => a.code.localeCompare(b.code));
+}
+
+function buildPlanText() {
+  if (state.plan.length === 0) return "";
+  const prog = state.program === "CSEC" ? "BS in Cybersecurity (CSEC)" : "All Courses";
+  const compCodes = [...state.completed].sort();
+  const curCodes = [...state.current].sort();
+  const planCodes = [...state.planned].sort();
+
+  // Helper: format code list as 3-column TSV with full names
+  function formatCourseGrid(codes) {
+    const entries = codes.map(c => {
+      const d = ALL[c];
+      return d ? (d.isGeneric ? d.t : `${c} — ${d.t}`) : c;
+    });
+    let grid = "";
+    for (let i = 0; i < entries.length; i += 3) {
+      const row = entries.slice(i, i + 3);
+      grid += "  " + row.join("\t") + "\n";
+    }
+    return grid;
+  }
+
+  // Detect substitutions and overrides
+  const subs = detectSubstitutions();
+  const overrides = detectOverrides();
+
+  // Compute stats
+  const totalPlanned = state.plan.reduce((sum, s) => sum + s.courses.length, 0);
+  const totalSemesters = state.plan.length;
+
+  // First semester info
+  const firstSem = state.plan[0];
+  const firstSemLabel = firstSem ? firstSem.label : "Next Semester";
+
+  // ── Build output ──
+  let text = "";
+  const subjName = (document.getElementById("studentName")?.value || "").trim() || "Last, First – W#";
+  text += `Subject: [CSEC ${firstSemLabel} Plan] ${subjName}\n\n`;
+  text += `UIW ${prog} — Semester Plan\n`;
+  text += "═".repeat(45) + "\n\n";
+
+  // ── Summary ──
+  text += "📊 SUMMARY\n";
+  text += `Completed: ${compCodes.join(", ") || "(None)"}\n`;
+  text += `Enrolled: ${curCodes.join(", ") || "(None)"}\n`;
+  text += `Planned (Next Semester): ${planCodes.join(", ") || "(None)"}\n`;
+  text += `[ Done: ${compCodes.length} | Now: ${curCodes.length} | Planned: ${planCodes.length} | Remaining: ${totalPlanned} | Semesters: ${totalSemesters} ]\n\n`;
+
+  // Helper: format codes as a simple comma-separated list with full names
+  function formatCourseList(codes) {
+    return codes.map(c => {
+      const d = ALL[c];
+      return d ? (d.isGeneric ? d.t : `${c} — ${d.t}`) : c;
+    }).join(", ");
+  }
+
+  // ── Section 1: Completed ──
+  text += "📝 1. COMPLETED COURSES\n";
+  if (compCodes.length > 0) {
+    text += "  " + formatCourseList(compCodes) + "\n";
+  } else {
+    text += "  (None)\n";
+  }
+  text += "\n";
+
+  // ── Section 2: Enrolled ──
+  // Current semester is the one before the next planned semester
+  const curSemName = state.nextSem === "fall" ? "Spring" : "Fall";
+  const curSemYear = state.nextSem === "fall" ? (state.nextSemYear || new Date().getFullYear()) : ((state.nextSemYear || new Date().getFullYear()) - 1);
+  const enrolledSemLabel = `${curSemName} ${curSemYear}`;
+  text += `📝 2. CURRENTLY ENROLLED (${enrolledSemLabel.trim()})\n`;
+  if (curCodes.length > 0) {
+    text += "  " + formatCourseList(curCodes) + "\n";
+  } else {
+    text += "  (None)\n";
+  }
+  text += "\n";
+
+  // ── Section 3: Planned courses for next semester (with CRN placeholders) ──
+  if (firstSem) {
+    const plannedInFirstSem = firstSem.courses.filter(c => state.planned.has(c));
+    text += `📋 3. COURSES PLANNED FOR ${firstSemLabel.toUpperCase()} (${plannedInFirstSem.length} course${plannedInFirstSem.length!==1?"s":""})\n`;
+    plannedInFirstSem.forEach(code => {
+      const d = ALL[code];
+      if (!d) return;
+      const av = d.avail?.spring && d.avail?.fall ? "S/F" : d.avail?.spring ? "S" : d.avail?.fall ? "F" : "?";
+      const displayCode = d.isGeneric ? d.t : code;
+      text += `  CRN: XXXXX | ${displayCode} — ${d.t} [${av}] | Modality Day/Time | Prof. Name\n`;
+      if (code === "Wellness") {
+        text += `      Note: FYES 1211 (First Year Experience Seminar) is highly recommended and fulfills this requirement.\n`;
+      }
+    });
+    // Skipped suggestions note
+    if (state.hasRecomputed && state.skippedSuggestions.length > 0) {
+      const skippedNames = state.skippedSuggestions.map(c => {
+        const d = ALL[c]; return d ? (d.isGeneric ? d.t : c) : c;
+      });
+      // Extra planned = courses the student added that weren't in the suggested list
+      // Exclude alt courses whose original was suggested (those are substitutions, not additions)
+      const suggestedAlts = new Set(state.suggestedFirstSem.flatMap(c => {
+        const alt = ALL[c]?.alt;
+        return alt ? [c, alt] : [c];
+      }));
+      const extraPlanned = [...state.planned].filter(c => !suggestedAlts.has(c));
+      const extraNames = extraPlanned.map(c => {
+        const d = ALL[c]; return d ? (d.isGeneric ? d.t : c) : c;
+      });
+      // Detect alt substitutions: student planned an alt of a suggested course
+      const altSubs = [...state.planned].filter(c => {
+        if (state.suggestedFirstSem.includes(c)) return false;
+        return state.suggestedFirstSem.some(s => ALL[s]?.alt === c);
+      });
+      const altSubNames = altSubs.map(c => {
+        const d = ALL[c]; if (!d) return c;
+        const origCode = state.suggestedFirstSem.find(s => ALL[s]?.alt === c);
+        return `${c} (substitute for ${origCode})`;
+      });
+      let note = `\n  ⚠ Notes: The plan recommended ${skippedNames.join(", ")} but the student opted to exclude ${skippedNames.length > 1 ? "these" : "this"} from the plan`;
+      if (altSubNames.length > 0) note += ` and selected ${altSubNames.join(", ")}`;
+      if (extraNames.length > 0) note += `${altSubNames.length > 0 ? "," : " and"} also added ${extraNames.join(", ")}`;
+      note += ".\n";
+      text += note;
+    }
+  }
+  text += "\n";
+
+  // ── Section 4: Override Requests ──
+  text += "⚠ 4. COURSE OVERRIDE REQUESTS\n";
+  text += "(List any courses from your plan that will require an override.)\n";
+  if (overrides.length > 0) {
+    overrides.forEach(o => { text += `  • ${o.code} — ${o.title}\n`; });
+  } else {
+    text += "  (None)\n";
+  }
+  text += "\n";
+
+  // ── Section 5: Substitutions with checkboxes ──
+  text += "🔄 5. PENDING COURSE SUBSTITUTIONS\n";
+  text += "(Confirm each substitution is approved and marked in DegreeWorks. Change [—] to [X] if approved.)\n";
+  if (subs.length > 0) {
+    subs.forEach(s => {
+      text += `  [—] ${s.target} — ${s.cisTitle}\n`;
+      text += `      ${s.status}: ${s.misCode} — ${s.misTitle}\n`;
+    });
+  } else {
+    text += "  (None)\n";
+  }
+  text += "\n";
+
+  // ── Section 6: Projected plan (future semesters) ──
+  if (state.plan.length > 1) {
+    text += "🗓️ 6. PROJECTED PLAN (subject to course availability)\n\n";
+    state.plan.forEach((sem, semIdx) => {
+      if (semIdx === 0) return; // skip first semester (already in section 3)
+      text += `${sem.label} (${sem.courses.length} course${sem.courses.length!==1?"s":""})\n`;
+      sem.courses.forEach(code => {
+        const d = ALL[code];
+        if (!d) return;
+        const av = d.avail?.spring && d.avail?.fall ? "S/F" : d.avail?.spring ? "S" : d.avail?.fall ? "F" : "?";
+        const displayCode = d.isGeneric ? d.t : code;
+        text += `  • ${displayCode} — ${d.t} [${av}]\n`;
+        if (code === "Wellness") {
+          text += `      Note: FYES 1211 (First Year Experience Seminar) is highly recommended and fulfills this requirement.\n`;
+        }
+      });
+      // Suggest optional courses if there's room
+      if (sem.courses.length < state.maxPerSem) {
+        const semType = sem.sem || (sem.label.startsWith("Fall") ? "fall" : "spring");
+        const optionals = Object.entries(ALL).filter(([c, d]) => d.prog === "Optional" && (d.avail || {})[semType]);
+        if (optionals.length > 0) {
+          const names = optionals.map(([c, d]) => `${c} (${d.topics?.[semType] || d.t})`).join(", ");
+          text += `      Note: If available, consider adding: ${names}\n`;
+        }
+      }
+      text += "\n";
+    });
+  }
+
+  text += "═".repeat(45) + "\n";
+  return text;
+}
+
+function updateCopyBoxes() {
+  const compList = [...state.completed].sort().join(", ");
+  const curList = [...state.current].sort().join(", ");
+  const planList = [...state.planned].sort().join(", ");
+  const ce = document.getElementById("copyCompleted"), cu = document.getElementById("copyCurrent");
+  const pl = document.getElementById("copyPlanned");
+  const pe = document.getElementById("copyPrompt");
+
+  if (compList) { ce.textContent = compList; ce.classList.remove("empty"); }
+  else { ce.textContent = 'Use "Completed" mode and click courses...'; ce.classList.add("empty"); }
+  if (curList) { cu.textContent = curList; cu.classList.remove("empty"); }
+  else { cu.textContent = 'Use "Enrolled" mode and click courses...'; cu.classList.add("empty"); }
+  if (planList) { pl.textContent = planList; pl.classList.remove("empty"); }
+  else { pl.textContent = 'Use "Planned" mode and click courses...'; pl.classList.add("empty"); }
+
+  // Build the ready-to-paste prompt
+  const prog = state.program === "CSEC" ? "BS in Cybersecurity (CSEC)" : "All Courses";
+  if (compList || curList || planList) {
+    let prompt = `I am a student in the ${prog} program at UIW.`;
+    if (compList) prompt += ` I have completed the following courses: ${compList}.`;
+    if (curList) prompt += ` I am currently taking this semester: ${curList}.`;
+    if (planList) prompt += ` I am planning to take next semester: ${planList}.`;
+    prompt += ` Generate a full semester-by-semester plan for the remaining courses I need to complete my degree, considering Spring and Fall availability.`;
+    pe.textContent = prompt;
+    pe.classList.remove("empty");
+    pe.style.color = "#cbd5e1";
+  } else {
+    pe.textContent = "Select courses above to generate prompt...";
+    pe.classList.add("empty");
+    pe.style.color = "#94a3b8";
+  }
+}
+
+function updateStats() {
+  const allSelected = new Set([...state.completed, ...state.current, ...state.planned]);
+  let total = 0;
+  Object.keys(ALL).forEach(c => {
+    if (!isVisibleForPlanning(c)) return;
+    const alt = ALL[c]?.alt;
+    // Skip this course if its alt is already selected and this one isn't
+    if (alt && allSelected.has(alt) && !allSelected.has(c)) return;
+    total++;
+  });
+  const doneN = [...state.completed].filter(c => isVisibleForPlanning(c)).length;
+  const nowN = [...state.current].filter(c => isVisibleForPlanning(c)).length;
+  const planN = [...state.planned].filter(c => isVisibleForPlanning(c)).length;
+  const pct = total ? Math.round((doneN + nowN) / total * 100) : 0;
+
+  document.getElementById("statDone").textContent = doneN;
+  document.getElementById("statNow").textContent = nowN;
+  document.getElementById("statPlanned").textContent = planN;
+  document.getElementById("statLeft").textContent = total - doneN - nowN;
+  document.getElementById("statSems").textContent = state.plan.length;
+  document.getElementById("statPct").textContent = pct + "%";
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// INTERACTIONS
+// ═════════════════════════════════════════════════════════════════════════
+function notify(msg) {
+  const el = document.getElementById("notification");
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(el._t); el._t = setTimeout(()=>el.classList.remove("show"),1600);
+}
+
+function onNodeClick(e, d) {
+  e.stopPropagation();
+  // Check if click was on the alt toggle indicator
+  const target = e.target;
+  if (target.classList.contains("alt-toggle-bg") || target.classList.contains("alt-toggle-text") || target.closest?.(".alt-group")) {
+    // Toggle alternative display
+    if (d.alt) {
+      if (state.activeAlts.has(d.id)) {
+        state.activeAlts.delete(d.id);
+      } else {
+        state.activeAlts.add(d.id);
+      }
+      updateGraphColors();
+      notify(state.activeAlts.has(d.id) ? `Showing ${d.alt} (alternative)` : `Showing ${d.id}`);
+    }
+    return;
+  }
+
+  // Determine which course code to mark (original or swapped alt)
+  const effectiveCode = (state.activeAlts.has(d.id) && d.alt) ? d.alt : d.id;
+  toggleCourse(effectiveCode);
+}
+
+// Toggle a course in the active input mode (shared by graph nodes and list view rows)
+function toggleCourse(effectiveCode) {
+  if (state.mode === "completed") {
+    // Reset recompute state since base plan will change
+    state.hasRecomputed = false; state.skippedSuggestions = [];
+    if (state.completed.has(effectiveCode)) {
+      state.completed.delete(effectiveCode);
+      notify(`Unmarked ${effectiveCode}`);
+    } else {
+      state.current.delete(effectiveCode);
+      state.planned.delete(effectiveCode);
+      state.completed.add(effectiveCode);
+      notify(`${effectiveCode} = Completed`);
+    }
+  } else if (state.mode === "current") {
+    // Reset recompute state since base plan will change
+    state.hasRecomputed = false; state.skippedSuggestions = [];
+    if (state.current.has(effectiveCode)) {
+      state.current.delete(effectiveCode);
+      notify(`Unmarked ${effectiveCode}`);
+    } else {
+      state.completed.delete(effectiveCode);
+      state.planned.delete(effectiveCode);
+      state.current.add(effectiveCode);
+      notify(`${effectiveCode} = Enrolled`);
+    }
+  } else {
+    // planned mode
+    if (state.planned.has(effectiveCode)) {
+      state.planned.delete(effectiveCode);
+      notify(`Unmarked ${effectiveCode}`);
+    } else {
+      state.completed.delete(effectiveCode);
+      state.current.delete(effectiveCode);
+      state.planned.add(effectiveCode);
+      notify(`${effectiveCode} = Planned`);
+    }
+  }
+  fullUpdate();
+}
+
+function onNodeRightClick(e, d) {
+  e.preventDefault(); // just prevent context menu, no action
+}
+
+const tooltip = d3.select("#tooltip");
+
+function onNodeOver(e, d) {
+  const st = getStatus(d.id);
+  const col = (st==="completed"||st==="current") ? statusColors[st] : (getPlanColor(d.id)||statusColors[st]||"#475569");
+
+  // Highlight chain (always computed for tooltip, but dimming only when focusMode is ON)
+  const ancestors = new Set(), descendants = new Set();
+  function findAnc(c){(ALL[c]?.p||[]).filter(p=>ALL[p]&&isVisible(p)).forEach(p=>{ancestors.add(p);findAnc(p)})}
+  function findDesc(c){links.filter(l=>(l.source.id||l.source)===c).forEach(l=>{const t=l.target.id||l.target;descendants.add(t);findDesc(t)})}
+  findAnc(d.id); findDesc(d.id);
+  const related = new Set([d.id,...ancestors,...descendants]);
+
+  if (state.focusMode) {
+    nodeEls.select(".node-circle").attr("opacity",n=>related.has(n.id)?1:0.12);
+    nodeEls.select(".node-code").attr("opacity",n=>related.has(n.id)?1:0.12);
+    nodeEls.select(".node-name").attr("opacity",n=>related.has(n.id)?1:0.08);
+    linkEls.attr("opacity",l=>{
+      const s=l.source.id||l.source,t=l.target.id||l.target;
+      return related.has(s)&&related.has(t)?0.9:0.03;
+    }).attr("stroke",l=>{
+      const s=l.source.id||l.source,t=l.target.id||l.target;
+      if(!related.has(s)||!related.has(t))return"#334155";
+      if(ancestors.has(s)&&(ancestors.has(t)||t===d.id))return"#22c55e";
+      if(descendants.has(t)&&(descendants.has(s)||s===d.id))return"#f97316";
+      return"#475569";
+    }).attr("stroke-width",l=>{
+      const s=l.source.id||l.source,t=l.target.id||l.target;
+      return related.has(s)&&related.has(t)?2.5:1;
+    });
+  }
+
+  const statusLabel={completed:"Completed",current:"Enrolled",eligible:"Eligible Next",locked:"Locked"};
+  const tagBg={completed:"#22c55e33",current:"#3b82f633",eligible:"#f59e0b33",locked:"#47556933"};
+  const displayCode = d.isGeneric ? d.t : d.id;
+  let html=`<div class="tt-code" style="color:${col}">${displayCode} <span class="tt-tag" style="background:${tagBg[st]||'#33333366'};color:${col}">${statusLabel[st]||"Planned"}</span></div>`;
+  html+=`<div class="tt-title">${d.t}</div><div class="tt-divider"></div>`;
+  const prereqDisplay=d.p.length?d.p.map(p=>{
+    if(!ALL[p])return p;const pcol=statusColors[getStatus(p)]||"#94a3b8";
+    return`<span style="color:${pcol}">${p}</span>`;
+  }).join(", "):"None";
+  html+=`<div class="tt-row"><span class="tt-label">Prerequisites</span><span class="tt-val">${prereqDisplay}</span></div>`;
+  if(d.pt==="AND")html+=`<div class="tt-row"><span class="tt-label">Type</span><span class="tt-val">ALL required</span></div>`;
+  if(d.pt==="credit_hours")html+=`<div class="tt-row"><span class="tt-label">Type</span><span class="tt-val">12+ CIS credits</span></div>`;
+  html+=`<div class="tt-row"><span class="tt-label">Program</span><span class="tt-val">${d.prog}</span></div>`;
+  if(d.g>0)html+=`<div class="tt-row"><span class="tt-label">Gating Score</span><span class="tt-val">${d.g}</span></div>`;
+  const av=[];if(d.avail?.spring)av.push("Spring");if(d.avail?.fall)av.push("Fall");
+  html+=`<div class="tt-row"><span class="tt-label">Offered</span><span class="tt-val">${av.join(", ")||"TBD"}</span></div>`;
+  if(d.topics)html+=`<div class="tt-row"><span class="tt-label">Topics</span><span class="tt-val">Fall: ${d.topics.fall}<br>Spring: ${d.topics.spring}</span></div>`;
+  if(d.inst.length)html+=`<div class="tt-row"><span class="tt-label">Instructors</span><span class="tt-val">${d.inst.join(", ")}</span></div>`;
+  if(d.internshipNote)html+=`<div class="tt-divider"></div><div style="color:#f59e0b;font-size:11px;line-height:1.3;padding:2px 0">⚠ ${d.internshipNote}</div>`;
+  const relUnl=(d.unlocks||[]).filter(u=>isVisible(u));
+  if(relUnl.length)html+=`<div class="tt-divider"></div><div class="tt-row"><span class="tt-label">Unlocks</span><span class="tt-val" style="color:#f59e0b">${relUnl.join(", ")}</span></div>`;
+
+  tooltip.html(html).style("display","block");
+
+  // Position tooltip in opposite corner of graph panel from the hovered node
+  const panelRect = graphPanel.getBoundingClientRect();
+  const transform = d3.zoomTransform(svg.node());
+  const nodeScreenX = transform.applyX(d.x) + panelRect.left;
+  const nodeScreenY = transform.applyY(d.y) + panelRect.top;
+  const nodeMidX = panelRect.left + panelRect.width / 2;
+  const nodeMidY = panelRect.top + panelRect.height / 2;
+  const margin = 16;
+  const ttNode = tooltip.node();
+  const ttW = ttNode.offsetWidth || 340;
+  const ttH = ttNode.offsetHeight || 200;
+
+  let tx, ty;
+  if (nodeScreenX < nodeMidX) {
+    tx = panelRect.width - ttW - margin;  // right side
+  } else {
+    tx = margin;  // left side
+  }
+  if (nodeScreenY < nodeMidY) {
+    ty = panelRect.height - ttH - margin;  // bottom
+  } else {
+    ty = margin;  // top
+  }
+  tooltip.style("left", tx + "px").style("top", ty + "px");
+}
+
+function onNodeMove(e) {
+  // no-op: tooltip is anchored to a corner, not following cursor
+}
+
+function onNodeOut() {
+  tooltip.style("display","none");
+  if (state.focusMode) updateGraphColors();
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// COPY BUTTONS
+// ═════════════════════════════════════════════════════════════════════════
+function copyText(text, btn) {
+  const originalText = btn.textContent;
+  navigator.clipboard.writeText(text).then(()=>{
+    btn.textContent="Copied!";btn.classList.add("copied");
+    setTimeout(()=>{btn.textContent=originalText;btn.classList.remove("copied")},1500);
+  }).catch(()=>{
+    const ta=document.createElement("textarea");ta.value=text;document.body.appendChild(ta);
+    ta.select();document.execCommand("copy");document.body.removeChild(ta);
+    btn.textContent="Copied!";btn.classList.add("copied");
+    setTimeout(()=>{btn.textContent=originalText;btn.classList.remove("copied")},1500);
+  });
+}
+
+document.getElementById("btnCopyCompleted").addEventListener("click", ()=>{
+  const t=[...state.completed].sort().join(", ");
+  if(t)copyText(t,document.getElementById("btnCopyCompleted")); else notify("No completed courses selected");
+});
+document.getElementById("btnCopyCurrent").addEventListener("click", ()=>{
+  const t=[...state.current].sort().join(", ");
+  if(t)copyText(t,document.getElementById("btnCopyCurrent")); else notify("No current semester courses selected");
+});
+document.getElementById("btnCopyPlanned").addEventListener("click", ()=>{
+  const t=[...state.planned].sort().join(", ");
+  if(t)copyText(t,document.getElementById("btnCopyPlanned")); else notify("No planned courses selected");
+});
+document.getElementById("btnCopyPrompt").addEventListener("click", ()=>{
+  const pe=document.getElementById("copyPrompt");
+  const t=pe.textContent;
+  if(t && !t.startsWith("Select courses"))copyText(t,document.getElementById("btnCopyPrompt"));
+  else notify("Select courses first to generate prompt");
+});
+document.getElementById("btnRecompute").addEventListener("click", ()=>{
+  // Recompute: keep planned selections, push unselected suggestions to future semesters
+  state.hasRecomputed = true;
+  fullUpdate();
+  const skipped = state.skippedSuggestions.length;
+  notify(skipped > 0
+    ? `Plan confirmed — ${skipped} unselected suggestion${skipped>1?"s":""} moved to future semesters`
+    : "Plan confirmed with your selected courses");
+});
+
+document.getElementById("btnCopyPlan").addEventListener("click", ()=>{
+  const t = buildPlanText();
+  if(t) copyText(t, document.getElementById("btnCopyPlan"));
+  else notify("No plan generated yet — select completed courses first");
+});
+
+// ── Paste Mode ───────────────────────────────────────────────────────────
+let pasteMode = false;
+document.getElementById("btnPasteMode").addEventListener("click", ()=>{
+  pasteMode = !pasteMode;
+  const btn = document.getElementById("btnPasteMode");
+  const readDiv = document.getElementById("copyModeRead");
+  const pasteDiv = document.getElementById("copyModePaste");
+  const errDiv = document.getElementById("pasteErrors");
+  btn.classList.toggle("active", pasteMode);
+  btn.textContent = pasteMode ? "✕ Close" : "📋 Paste";
+  readDiv.style.display = pasteMode ? "none" : "block";
+  pasteDiv.style.display = pasteMode ? "block" : "none";
+  errDiv.style.display = "none";
+  if (pasteMode) {
+    // Pre-fill textareas with current selections
+    document.getElementById("pasteCompleted").value = [...state.completed].sort().join(", ");
+    document.getElementById("pasteCurrent").value = [...state.current].sort().join(", ");
+    document.getElementById("pastePlanned").value = [...state.planned].sort().join(", ");
+  }
+});
+
+function parseCourseList(text) {
+  if (!text.trim()) return { codes: [], errors: [] };
+  // Split on commas, trim each entry
+  const entries = text.split(",").map(s => s.trim()).filter(s => s);
+  const codes = [];
+  const errors = [];
+  for (const entry of entries) {
+    // Try exact match first (e.g., "CIS 2328", "Fine Arts", "MATH 1304")
+    if (ALL[entry]) { codes.push(entry); continue; }
+    // Try case-insensitive match
+    const lower = entry.toLowerCase();
+    const match = Object.keys(ALL).find(k => k.toLowerCase() === lower);
+    if (match) { codes.push(match); continue; }
+    // Try matching by title (e.g., "College Algebra" → "MATH 1304")
+    const titleMatch = Object.entries(ALL).find(([k, v]) => v.t.toLowerCase() === lower);
+    if (titleMatch) { codes.push(titleMatch[0]); continue; }
+    // Try partial match on code (e.g., "CIS2328" without space)
+    const noSpace = entry.replace(/\s+/g, "").toUpperCase();
+    const partialMatch = Object.keys(ALL).find(k => k.replace(/\s+/g, "").toUpperCase() === noSpace);
+    if (partialMatch) { codes.push(partialMatch); continue; }
+    errors.push(entry);
+  }
+  return { codes, errors };
+}
+
+document.getElementById("btnPasteApply").addEventListener("click", ()=>{
+  const compText = document.getElementById("pasteCompleted").value;
+  const curText = document.getElementById("pasteCurrent").value;
+  const planText = document.getElementById("pastePlanned").value;
+
+  const comp = parseCourseList(compText);
+  const cur = parseCourseList(curText);
+  const plan = parseCourseList(planText);
+
+  const allErrors = [
+    ...comp.errors.map(e => `Completed: "${e}"`),
+    ...cur.errors.map(e => `Enrolled: "${e}"`),
+    ...plan.errors.map(e => `Planned: "${e}"`)
+  ];
+
+  // Show errors if any
+  const errDiv = document.getElementById("pasteErrors");
+  if (allErrors.length > 0) {
+    errDiv.innerHTML = "⚠ Unrecognized: " + allErrors.join(", ") + "<br><small>These were skipped. Check spelling or use exact course codes.</small>";
+    errDiv.style.display = "block";
+  } else {
+    errDiv.style.display = "none";
+  }
+
+  // Clear current state
+  state.completed.clear();
+  state.current.clear();
+  state.planned.clear();
+  state.hasRecomputed = false;
+  state.skippedSuggestions = [];
+  state.activeAlts.clear();
+
+  // Apply parsed courses
+  comp.codes.forEach(c => state.completed.add(c));
+  cur.codes.forEach(c => state.current.add(c));
+  plan.codes.forEach(c => state.planned.add(c));
+
+  // Auto-toggle alts for substitute courses that are selected
+  for (const [misCode, info] of Object.entries(SUBSTITUTION_MAP)) {
+    if (state.completed.has(misCode) || state.current.has(misCode) || state.planned.has(misCode)) {
+      // Toggle the program course's alt display to show the substitute
+      if (ALL[info.target]) state.activeAlts.add(info.target);
+    }
+  }
+
+  fullUpdate();
+
+  const total = comp.codes.length + cur.codes.length + plan.codes.length;
+  notify(`Applied ${total} courses (${comp.codes.length} completed, ${cur.codes.length} enrolled, ${plan.codes.length} planned)`);
+
+  // Switch back to read mode
+  pasteMode = false;
+  const btn = document.getElementById("btnPasteMode");
+  btn.classList.remove("active");
+  btn.textContent = "📋 Paste";
+  document.getElementById("copyModeRead").style.display = "block";
+  document.getElementById("copyModePaste").style.display = "none";
+});
+
+document.getElementById("btnPasteClear").addEventListener("click", ()=>{
+  state.completed.clear();
+  state.current.clear();
+  state.planned.clear();
+  state.hasRecomputed = false;
+  state.skippedSuggestions = [];
+  state.activeAlts.clear();
+  document.getElementById("pasteCompleted").value = "";
+  document.getElementById("pasteCurrent").value = "";
+  document.getElementById("pastePlanned").value = "";
+  document.getElementById("pasteErrors").style.display = "none";
+  fullUpdate();
+  notify("All selections cleared");
+});
+
+// ═════════════════════════════════════════════════════════════════════════
+// CONTROLS
+// ═════════════════════════════════════════════════════════════════════════
+// Mode toggle
+const btnComp = document.getElementById("modeCompleted");
+const btnCur = document.getElementById("modeCurrent");
+const btnPlan = document.getElementById("modePlanned");
+
+function setMode(mode) {
+  state.mode = mode;
+  btnComp.className = mode === "completed" ? "active-completed" : "";
+  btnCur.className = mode === "current" ? "active-current" : "";
+  btnPlan.className = mode === "planned" ? "active-planned" : "";
+  updateListPanel();
+}
+
+btnComp.addEventListener("click", () => setMode("completed"));
+btnCur.addEventListener("click", () => setMode("current"));
+btnPlan.addEventListener("click", () => setMode("planned"));
+
+d3.select("#programSelect").on("change", function() {
+  state.program = this.value;
+  // Reset zoom when switching views
+  svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity);
+  rebuild();
+  fullUpdate();
+});
+
+d3.select("#nextSemSelect").on("change", function() {
+  const parts = this.value.split("-");
+  state.nextSem = parts[0];
+  state.nextSemYear = parseInt(parts[1]);
+  updateTermLabels();
+  fullUpdate();
+});
+
+d3.select("#loadSelect").on("change", function() {
+  const [mn,mx]=this.value.split("-").map(Number);
+  state.minPerSem=mn;
+  state.maxPerSem=mx;
+  fullUpdate();
+});
+
+d3.select("#focusToggle").on("click", function() {
+  state.focusMode = !state.focusMode;
+  d3.select(this).classed("active", state.focusMode);
+  // When turning off focus mode, restore full brightness immediately
+  if (!state.focusMode) {
+    nodeEls.select(".node-circle").attr("opacity", 1);
+    nodeEls.select(".node-code").attr("opacity", 1);
+    nodeEls.select(".node-name").attr("opacity", 1);
+    updateGraphColors();
+  }
+  notify(state.focusMode ? "Focus mode ON — hover dims unrelated nodes" : "Focus mode OFF — all nodes stay visible");
+});
+
+d3.select("#resetBtn").on("click", ()=>{
+  state.completed.clear(); state.current.clear(); state.planned.clear();
+  state.hasRecomputed = false; state.skippedSuggestions = []; state.activeAlts.clear();
+  svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity);
+  fullUpdate(); notify("All selections cleared");
+});
+
+// Handle resize (skip while the graph panel is hidden — it has zero size)
+function resizeGraph() {
+  if (graphPanel.clientWidth === 0 || graphPanel.clientHeight === 0) return;
+  if (graphPanel.clientWidth === gW && graphPanel.clientHeight === gH) return;
+  gW = graphPanel.clientWidth; gH = graphPanel.clientHeight;
+  svg.attr("width",gW).attr("height",gH);
+  rebuild(); fullUpdate();
+}
+window.addEventListener("resize", resizeGraph);
+
+// ── Views: graph | list | plan (plan is its own view only on phones) ──
+const phoneQuery = window.matchMedia("(max-width:768px)");
+function setView(view) {
+  if (!phoneQuery.matches && view === "plan") view = "graph";
+  document.body.classList.remove("view-graph", "view-list", "view-plan");
+  document.body.classList.add("view-" + view);
+  document.querySelectorAll("#tabBar button").forEach(b => b.classList.toggle("active", b.dataset.view === view));
+  const vt = document.getElementById("viewToggle");
+  vt.classList.toggle("active", view === "list");
+  vt.textContent = view === "list" ? "◎ Graph" : "☰ List";
+  if (view === "graph") resizeGraph();
+}
+document.querySelectorAll("#tabBar button").forEach(b => b.addEventListener("click", () => setView(b.dataset.view)));
+document.getElementById("viewToggle").addEventListener("click", () =>
+  setView(document.body.classList.contains("view-list") ? "graph" : "list"));
+phoneQuery.addEventListener("change", e => setView(e.matches ? "list" : "graph"));
+
+document.getElementById("optionsBtn").addEventListener("click", function() {
+  const open = document.getElementById("header").classList.toggle("options-open");
+  this.setAttribute("aria-expanded", String(open));
+  resizeGraph();
+});
+
+// ── Help overlay (shown once on first visit, reopen with "? Help") ──
+const HELP_KEY = "csecPlannerHelpSeen";
+function openHelp() { document.getElementById("helpOverlay").hidden = false; document.getElementById("helpDone").focus(); }
+function closeHelp() {
+  document.getElementById("helpOverlay").hidden = true;
+  try { localStorage.setItem(HELP_KEY, "1"); } catch (e) {}
+}
+document.getElementById("helpBtn").addEventListener("click", openHelp);
+document.getElementById("helpClose").addEventListener("click", closeHelp);
+document.getElementById("helpDone").addEventListener("click", closeHelp);
+document.getElementById("helpOverlay").addEventListener("click", e => { if (e.target.id === "helpOverlay") closeHelp(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !document.getElementById("helpOverlay").hidden) closeHelp(); });
+
+function termLabel() {
+  return `${state.nextSem === "fall" ? "Fall" : "Spring"} ${state.nextSemYear}`;
+}
+function updateTermLabels() {
+  document.querySelectorAll(".term-label").forEach(el => el.textContent = termLabel());
+}
+
+// ── Submit plan by email ──
+const ADVISOR_EMAIL = "gdparra@uiwtx.edu";
+const NAME_KEY = "csecPlannerStudentName";
+const nameInput = document.getElementById("studentName");
+try { nameInput.value = localStorage.getItem(NAME_KEY) || ""; } catch (e) {}
+nameInput.addEventListener("change", () => { try { localStorage.setItem(NAME_KEY, nameInput.value.trim()); } catch (e) {} });
+
+document.getElementById("btnSubmitPlan").addEventListener("click", () => {
+  const name = nameInput.value.trim();
+  if (!name) { notify("Type your name and W number first"); nameInput.focus(); return; }
+  const text = buildPlanText();
+  if (!text) { notify("No plan yet — mark your completed courses first"); return; }
+  copyText(text, document.getElementById("btnSubmitPlan"));
+  const subject = `[CSEC ${termLabel()} Plan] ${name}`;
+  // Long plans can exceed mailto URL limits in some mail apps; fall back to paste
+  let body = text;
+  if (encodeURIComponent(body).length > 6000) {
+    body = "My course plan is below (pasted from the CSEC planner):\n\n";
+  }
+  window.location.href = `mailto:${ADVISOR_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+});
+
+// ═════════════════════════════════════════════════════════════════════════
+// INIT
+// ═════════════════════════════════════════════════════════════════════════
+
+// ── Auto-detect available semesters based on current date ──
+(function populateSemesterDropdown() {
+  const now = new Date();
+  const month = now.getMonth(); // 0-indexed: 0=Jan, 2=Mar, 7=Aug, 11=Dec
+  const year = now.getFullYear();
+  const select = document.getElementById("nextSemSelect");
+  select.innerHTML = "";
+
+  // Registration windows:
+  // Fall registration: ~mid-March through ~early September (deadline ~Sep 2)
+  // Spring registration: ~mid-October through ~mid-January (deadline ~Jan 20)
+  // Fall semester: last week of August through first week of December
+  // Spring semester: mid-January through mid-May
+
+  const semesters = [];
+
+  // Determine which semesters to offer based on current date
+  if (month >= 2 && month <= 8) {
+    // March through August: Fall of current year is primary
+    semesters.push({ value: `fall-${year}`, label: `Fall ${year}`, sem: "fall", yr: year });
+    semesters.push({ value: `spring-${year+1}`, label: `Spring ${year+1}`, sem: "spring", yr: year+1 });
+  } else if (month >= 9 && month <= 11) {
+    // September through December: Spring of next year is primary
+    semesters.push({ value: `spring-${year+1}`, label: `Spring ${year+1}`, sem: "spring", yr: year+1 });
+    semesters.push({ value: `fall-${year+1}`, label: `Fall ${year+1}`, sem: "fall", yr: year+1 });
+  } else {
+    // January through February: Spring of current year is primary
+    semesters.push({ value: `spring-${year}`, label: `Spring ${year}`, sem: "spring", yr: year });
+    semesters.push({ value: `fall-${year}`, label: `Fall ${year}`, sem: "fall", yr: year });
+  }
+
+  semesters.forEach((s, i) => {
+    const opt = document.createElement("option");
+    opt.value = s.value;
+    opt.textContent = s.label;
+    select.appendChild(opt);
+  });
+
+  // Parse initial value and set state
+  const initial = semesters[0];
+  state.nextSem = initial.sem;
+  state.nextSemYear = initial.yr;
+})();
+
+setView(phoneQuery.matches ? "list" : "graph");
+updateTermLabels();
+rebuild();
+fullUpdate();
+try { if (!localStorage.getItem(HELP_KEY)) openHelp(); } catch (e) { openHelp(); }
+</script>
+</body>
+</html>
