@@ -383,6 +383,7 @@ body.view-list #listPanel{display:block}
       <li><b>Meet</b> — book your advising appointment from the EAB Navigate email. Your plan must arrive before the meeting. Your Alt PIN is released after the meeting.</li>
     </ol>
     <div class="help-note"><b>Substitutions:</b> ENGR 4321 counts for CSEC 3355, MIS 3363 for CIS 3310, MIS 3362 for CIS 3362. Use the ⇄ button on a course (graph) or the ⇄ link (list) to pick the substitute.</div>
+    <div class="help-note"><b>Spring 2027:</b> CSEC 3355 is not offered. Plan ENGR 4321 instead (the planner swaps it for you). ENGR 4321 needs a prerequisite override: request it from Dr. Okan Caglayan. If he is not available, ask Dr. Arjona.</div>
     <button class="paste-apply" id="helpDone">Got it</button>
   </div>
 </div>
@@ -447,7 +448,7 @@ const ALL = {
   "CSEC 2300":{t:"Foundations of CSEC",p:[],pt:null,g:4,l:2,prog:"CSEC",avail:{spring:false,fall:true},inst:["Dr. Parra (F)"],unlocks:["CSEC 3355","CSEC 3370"],sw:7,cp:false,sp:1},
   "CSEC 3319":{t:"Internship (CSEC)",p:["12 Credits in CIS/CSEC"],pt:"credit_hours",g:4,l:3,prog:"CSEC",avail:{spring:true,fall:true},inst:["Prof. Ammari (S/F)"],unlocks:["CIS 4390","CSEC 4390"],alt:"CIS 3319",internshipNote:"Requires internship packet approval from CIS coordinator. Register as CIS 3319 or CSEC 3319 (usually only CIS 3319 has an open section).",sw:2,cp:false,sp:3},
   "CSEC 3320":{t:"Network Security Management",p:["CIS 3353"],pt:"single",g:0,l:3,prog:"CSEC",avail:{spring:false,fall:true},inst:["Prof. Hernandez (F, online)"],unlocks:[],sw:3,cp:false,sp:3},
-  "CSEC 3355":{t:"Cyber Systems and Components",p:["CSEC 2300"],pt:"single",g:0,l:3,prog:"CSEC",avail:{spring:true,fall:false},inst:["STAFF (S, online)"],unlocks:[],alt:"ENGR 4321",sw:5,cp:false,sp:3},
+  "CSEC 3355":{t:"Cyber Systems and Components",p:["CSEC 2300"],pt:"single",g:0,l:3,prog:"CSEC",avail:{spring:true,fall:false},inst:["Not offered Spring 2027: take ENGR 4321"],unlocks:[],alt:"ENGR 4321",sw:5,cp:false,sp:3},
   "CSEC 3370":{t:"Laws & Ethics in CSEC",p:["CSEC 2300"],pt:"single",g:0,l:3,prog:"CSEC",avail:{spring:false,fall:true},inst:["Dr. Labay (F)"],unlocks:[],sw:4,cp:false,sp:3},
   "CSEC 4300":{t:"Malware Analysis",p:["CIS 3335","CIS 3345"],pt:"AND",g:0,l:4,prog:"CSEC",avail:{spring:true,fall:false},inst:["Prof. Hernandez (S, online)"],unlocks:[],sw:1,cp:true,sp:4},
   "CSEC 4320":{t:"Risk Management and Policy",p:["CIS 3353"],pt:"single",g:0,l:4,prog:"CSEC",avail:{spring:true,fall:false},inst:["Dr. Labay (S)"],unlocks:[],sw:2,cp:false,sp:4},
@@ -662,6 +663,10 @@ function computePlan() {
   // Step 1: Build "suggested" plan using completed + current only (NOT planned)
   const baseDone = [...state.completed, ...state.current];
   const suggestedPlan = _buildPlan(baseDone);
+  // Registration term: replace courses not offered this term with their substitute
+  if (suggestedPlan.length > 0 && suggestedPlan[0].label === termLabel()) {
+    suggestedPlan[0].courses = suggestedPlan[0].courses.map(c => termReplacement(c) || c);
+  }
 
   // Store the first semester suggestion for reference
   state.suggestedFirstSem = suggestedPlan.length > 0 ? [...suggestedPlan[0].courses] : [];
@@ -1208,6 +1213,9 @@ function updatePlanPanel() {
           html += `<span class="sem-avail">${av}</span></div>`;
           // Substitution warning note
           html += `<div style="padding:2px 8px 2px 26px;font-size:11px;color:#f59e0b;line-height:1.3">⚠ Substitute: ${code} — ${d.t}</div>`;
+          if (DIRECT_OVERRIDES[code]) {
+            html += `<div style="padding:2px 8px 2px 26px;font-size:11px;color:#f59e0b;line-height:1.3">⚠ Requires prerequisite override. ${DIRECT_OVERRIDES[code]}</div>`;
+          }
         }
         return; // Don't render the MIS course as a separate entry
       }
@@ -1236,6 +1244,12 @@ function updatePlanPanel() {
       // Override note (Banner prerequisite mismatch) — show in any semester
       if (OVERRIDE_COURSES.has(code)) {
         html += `<div style="padding:2px 8px 2px 26px;font-size:11px;color:#f59e0b;line-height:1.3">⚠ Requires prerequisite override in Banner. Contact advisor.</div>`;
+      }
+      if (d.prog === "Substitute" && d.alt && ALL[d.alt]) {
+        html += `<div style="padding:2px 8px 2px 26px;font-size:11px;color:#f59e0b;line-height:1.3">⚠ Counts for ${d.alt} — ${ALL[d.alt].t}</div>`;
+      }
+      if (DIRECT_OVERRIDES[code]) {
+        html += `<div style="padding:2px 8px 2px 26px;font-size:11px;color:#f59e0b;line-height:1.3">⚠ Requires prerequisite override. ${DIRECT_OVERRIDES[code]}</div>`;
       }
     });
 
@@ -1270,6 +1284,13 @@ const SUBSTITUTION_MAP = {
 };
 // Courses with critical Banner prerequisite mismatches requiring an override
 const OVERRIDE_COURSES = new Set(["CIS 3345", "CIS 4370", "CSEC 3320", "CSEC 4320"]);
+// Overrides the student requests directly from the instructor (not through the advisor)
+const DIRECT_OVERRIDES = {
+  "ENGR 4321": "Request the override from Dr. Okan Caglayan. If he is not available, ask Dr. Arjona (arjonaba@uiwtx.edu)."
+};
+// Program courses not offered in a registration term: the planner plans the substitute instead
+const TERM_REPLACEMENTS = { "Spring 2027": { "CSEC 3355": "ENGR 4321" } };
+function termReplacement(code) { return (TERM_REPLACEMENTS[termLabel()] || {})[code] || null; }
 
 function detectSubstitutions() {
   const subs = [];
@@ -1294,6 +1315,9 @@ function detectOverrides() {
       const d = ALL[code];
       if (d) overrides.push({ code, title: d.t });
     }
+  }
+  for (const [code, note] of Object.entries(DIRECT_OVERRIDES)) {
+    if (state.planned.has(code) && ALL[code]) overrides.push({ code, title: ALL[code].t, note });
   }
   return overrides.sort((a, b) => a.code.localeCompare(b.code));
 }
@@ -1427,7 +1451,10 @@ function buildPlanText() {
   text += "⚠ 4. COURSE OVERRIDE REQUESTS\n";
   text += "(List any courses from your plan that will require an override.)\n";
   if (overrides.length > 0) {
-    overrides.forEach(o => { text += `  • ${o.code} — ${o.title}\n`; });
+    overrides.forEach(o => {
+      text += `  • ${o.code} — ${o.title}\n`;
+      if (o.note) text += `      ${o.note}\n`;
+    });
   } else {
     text += "  (None)\n";
   }
@@ -1594,15 +1621,21 @@ function toggleCourse(effectiveCode) {
       notify(`${effectiveCode} = Enrolled`);
     }
   } else {
-    // planned mode
+    // planned mode — a course not offered in the registration term is swapped for its substitute
+    const replacement = termReplacement(effectiveCode);
+    const swapNote = replacement ? ` (${effectiveCode} is not offered in ${termLabel()})` : "";
+    if (replacement) {
+      state.activeAlts.add(effectiveCode);
+      effectiveCode = replacement;
+    }
     if (state.planned.has(effectiveCode)) {
       state.planned.delete(effectiveCode);
-      notify(`Unmarked ${effectiveCode}`);
+      notify(`Unmarked ${effectiveCode}${swapNote}`);
     } else {
       state.completed.delete(effectiveCode);
       state.current.delete(effectiveCode);
       state.planned.add(effectiveCode);
-      notify(`${effectiveCode} = Planned`);
+      notify(`${effectiveCode} = Planned${swapNote}`);
     }
   }
   fullUpdate();
@@ -1834,7 +1867,7 @@ document.getElementById("btnPasteApply").addEventListener("click", ()=>{
   // Apply parsed courses
   comp.codes.forEach(c => state.completed.add(c));
   cur.codes.forEach(c => state.current.add(c));
-  plan.codes.forEach(c => state.planned.add(c));
+  plan.codes.forEach(c => state.planned.add(termReplacement(c) || c));
 
   // Auto-toggle alts for substitute courses that are selected
   for (const [misCode, info] of Object.entries(SUBSTITUTION_MAP)) {
